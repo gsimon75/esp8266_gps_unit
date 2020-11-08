@@ -92,7 +92,7 @@ export default {
     created: function() {
         console.log("App created");
         //var def = "/calendar";
-        var def = "/about";
+        var def = "/trainer_tracker";
 
         if (!this.$store.getters.is_logged_in) {
             def = "/signin";
