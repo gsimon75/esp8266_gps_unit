@@ -1,16 +1,16 @@
 {
   "project_info": {
-    "project_number": "48...6",
-    "firebase_url": "https://fitnesstest-....firebaseio.com",
-    "project_id": "fitnesstest-...",
-    "storage_bucket": "fitnesstest-....appspot.com"
+    "project_number": "3...0",
+    "firebase_url": "https://scooterfleet.firebaseio.com",
+    "project_id": "scooterfleet",
+    "storage_bucket": "scooterfleet.appspot.com"
   },
   "client": [
     {
       "client_info": {
         "mobilesdk_app_id": "1:...:android:...",
         "android_client_info": {
-          "package_name": "com.wodeewa.alpha.FitnessTest"
+          "package_name": "com.wodeewa.alpha.ScooterFleet"
         }
       },
       "oauth_client": [
@@ -18,7 +18,7 @@
           "client_id": "...-....apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.wodeewa.alpha.FitnessTest",
+            "package_name": "com.wodeewa.alpha.ScooterFleet",
             "certificate_hash": "..."
           }
         },
@@ -29,7 +29,7 @@
       ],
       "api_key": [
         {
-          "current_key": "..."
+          "current_key": "...-...-..."
         }
       ],
       "services": {

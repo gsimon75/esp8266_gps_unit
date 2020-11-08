@@ -1,4 +1,4 @@
-const SERVER_CLIENT_ID = "486487305536-esjb4i5m1el65gd2p4hbjenu62mf3tnp.apps.googleusercontent.com"; // from google-services.json
+const SERVER_CLIENT_ID = "355671533390-afafi7ma53lgi78jj5f0cs9m12vefkh8.apps.googleusercontent.com"; // from google-services.json
 
 export default {
     init_auth_plugin(context) {

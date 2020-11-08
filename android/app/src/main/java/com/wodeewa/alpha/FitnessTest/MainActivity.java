@@ -1,4 +1,4 @@
-package com.wodeewa.alpha.FitnessTest;
+package com.wodeewa.alpha.ScooterFleet;
 
 import android.os.Bundle;
 
