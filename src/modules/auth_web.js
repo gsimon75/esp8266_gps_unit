@@ -1,12 +1,12 @@
 // config of the web app of the project
 const web_app_config = {
-    apiKey: "AIzaSyApfMOTsdhl_otrcQKgo6V8mYAoCFRt7CE",
-    authDomain: "fitnesstest-2d3ba.firebaseapp.com",
-    databaseURL: "https://fitnesstest-2d3ba.firebaseio.com",
-    projectId: "fitnesstest-2d3ba",
-    storageBucket: "fitnesstest-2d3ba.appspot.com",
-    messagingSenderId: "486487305536",
-    appId: "1:486487305536:web:4c04879d7fdd556e09dea5"
+    apiKey: "AIzaSyAa8vGbPDQDOtF4cjKqYa_b99hK7KSPqBI",
+    authDomain: "scooterfleet.firebaseapp.com",
+    databaseURL: "https://scooterfleet.firebaseio.com",
+    projectId: "scooterfleet",
+    storageBucket: "scooterfleet.appspot.com",
+    messagingSenderId: "355671533390",
+    appId: "1:355671533390:web:dcfc7550ed03c6cc4ba01f"
 };
 
 export default {
