@@ -11,6 +11,8 @@ Web client ID: `486487305536-esjb4i5m1el65gd2p4hbjenu62mf3tnp.apps.googleusercon
 ## Project setup
 ```
 npm install
+npx cap update android
+# npx cap copy android
 ```
 
 ### Compiles and hot-reloads for development
