@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FitnessTest</string>
+    <string name="title_activity_main">FitnessTest</string>
+    <string name="package_name">com.wodeewa.alpha.FitnessTest</string>
+    <string name="custom_url_scheme">com.wodeewa.alpha.FitnessTest</string>
+</resources>
