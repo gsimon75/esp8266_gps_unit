@@ -195,7 +195,7 @@ router.beforeEach(waitForStorageToBeReady);
 
 // main initialization starts here
 store.dispatch("init_auth_plugin").catch(error => {
-    alert("Could not sign in with persisted data: " + error.message);
+    console.log("Could not sign in with persisted data: " + error.message);
     store.commit("logged_out");
 }).then(() => {
     if (typeof cordova !== "undefined") {

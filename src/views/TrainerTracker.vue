@@ -10,6 +10,7 @@
             @update:zoom="zoomUpdate"
         >
             <l-tile-layer :url="tile_url" :attribution="tile_attribution"/>
+            <l-geo-json :geojson="shops" :optionsStyle="style_extractor"/>
             <l-marker ref="trainerPos" :lat-lng="trainer_latlng">
                 <l-tooltip :options="{ permanent: true }">
                     Akeem
@@ -24,7 +25,7 @@
 import S4Date from "@/plugins/S4Date";
 // @ is an alias to /src
 import { latLng } from "leaflet";
-import { LMap, LTileLayer, LMarker, LTooltip } from "vue2-leaflet";
+import { LMap, LTileLayer, LGeoJson, LMarker, LTooltip } from "vue2-leaflet";
 
 import { Icon } from "leaflet";
 
@@ -75,29 +76,7 @@ const sim_route = [
 ];
 
 
-var base_A = [ 0.004769, 0.00457 ];
-var base_B = [ 0.002604, -0.003144 ];
-const base_P = [ 25.112453, 55.168317 ];
-
-const base_det = base_A[0] * base_B[1] - base_A[1] * base_B[0];
-
-const base_Am = [ base_A[0] / base_det, base_A[1] / base_det ];
-const base_Bm = [ base_B[0] / base_det, base_B[1] / base_det ];
-
-function transform_base(p_orig) {
-    const p = [ p_orig.lat - base_P[0], p_orig.lng - base_P[1] ];
-
-    var a =  p[0]*base_Bm[1] - p[1]*base_Bm[0];
-    var b = -p[0]*base_Am[1] + p[1]*base_Am[0];
-
-    a = (a >= 0) ? (a % 1) : 1 + (a % 1);
-    b = (b >= 0) ? (b % 1) : 1 + (b % 1);
-
-    const result = latLng(base_P[0] + a*base_A[0] + b*base_B[0], base_P[1] + a*base_A[1] + b*base_B[1]);
-    //console.log("xform: " + p_orig + " -> " + result);
-    return result;
-}
-
+import { transform_base, norm2latlng, shops } from "../modules/geoshapes";
 
 var sim_route_idx = 0, sim_route_next_idx = 1;
 const sim_route_delta_t = 0.05;
@@ -122,6 +101,7 @@ export default {
     components: {
         LMap,
         LTileLayer,
+        LGeoJson,
         LMarker,
         LTooltip,
     },
@@ -130,7 +110,7 @@ export default {
             tile_url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
             tile_attribution: "&copy; <a href=\"http://osm.org/copyright\">OpenStreetMap</a> contributors",
             map: false,
-            center: latLng(25.04460, 55.24686),
+            center: norm2latlng([0.5, 0.5]),
 			zoom: 17,
 
             marker_updater_id: false,
@@ -142,6 +122,7 @@ export default {
                 zoomSnap: 0.5
             },
             showMap: true,
+            shops,
         };
     },
     computed: {
@@ -163,6 +144,9 @@ export default {
             const eta = (sim_route.length - sim_route_idx) * 2.0 - sim_route_t;
             this.$store.state.app_bar_info = "ETA: " + S4Date.twodigit(0 | (eta / 60)) + ":" + S4Date.twodigit(0 | (eta % 60));
             this.$refs.trainerPos.setLatLng(this.trainer_latlng);
+        },
+        style_extractor: function (feature) {
+            return feature.properties;
         },
     },
     created: function() {
