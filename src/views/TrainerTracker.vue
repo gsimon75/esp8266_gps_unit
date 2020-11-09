@@ -97,7 +97,7 @@ export default {
         },
         update_marker: function () {
             this.trainer_latlng = current_location;
-            this.$store.state.app_bar_info = current_location.lat + ", " + current_location.lng;
+            this.$store.state.app_bar_info = current_location.lat.toFixed(4) + ", " + current_location.lng.toFixed(4);
             this.$refs.trainerPos.setLatLng(this.trainer_latlng);
         },
         style_extractor: function (feature) {

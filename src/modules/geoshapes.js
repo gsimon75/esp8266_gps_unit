@@ -147,67 +147,95 @@ for (let i in shop_coords) {
     },
 });*/
 
-const sim_route = [
-    { latitude: 25.04334, longitude: 55.24618, time: 2.0 },
-    { latitude: 25.04334, longitude: 55.24633, time: 2.0 },
-    { latitude: 25.04342, longitude: 55.24647, time: 2.0 },
-    { latitude: 25.04353, longitude: 55.24652, time: 2.0 },
-    { latitude: 25.04369, longitude: 55.24649, time: 2.0 },
-    { latitude: 25.04381, longitude: 55.24642, time: 2.0 },
-    { latitude: 25.04398, longitude: 55.24646, time: 2.0 },
-    { latitude: 25.04413, longitude: 55.24652, time: 2.0 },
-    { latitude: 25.04442, longitude: 55.24666, time: 2.0 },
-    { latitude: 25.04472, longitude: 55.24681, time: 2.0 },
-    { latitude: 25.04494, longitude: 55.24691, time: 2.0 },
-    { latitude: 25.04515, longitude: 55.24702, time: 2.0 },
-    { latitude: 25.04531, longitude: 55.24710, time: 2.0 },
-    { latitude: 25.04538, longitude: 55.24721, time: 2.0 },
-    { latitude: 25.04542, longitude: 55.24731, time: 2.0 },
-    { latitude: 25.04550, longitude: 55.24739, time: 2.0 },
-    { latitude: 25.04562, longitude: 55.24743, time: 2.0 },
-    { latitude: 25.04570, longitude: 55.24741, time: 2.0 },
-    { latitude: 25.04575, longitude: 55.24732, time: 2.0 },
-    { latitude: 25.04575, longitude: 55.24723, time: 2.0 },
-    { latitude: 25.04571, longitude: 55.24716, time: 2.0 },
-    { latitude: 25.04564, longitude: 55.24714, time: 2.0 },
-    { latitude: 25.04558, longitude: 55.24713, time: 2.0 },
-    { latitude: 25.04553, longitude: 55.24715, time: 2.0 },
-    { latitude: 25.04544, longitude: 55.24713, time: 2.0 },
-    { latitude: 25.04531, longitude: 55.24708, time: 2.0 },
-    { latitude: 25.04511, longitude: 55.24699, time: 2.0 },
-    { latitude: 25.04469, longitude: 55.24677, time: 2.0 },
-    { latitude: 25.04455, longitude: 55.24671, time: 2.0 },
-    { latitude: 25.04440, longitude: 55.24664, time: 2.0 },
-    { latitude: 25.04426, longitude: 55.24656, time: 2.0 },
-    { latitude: 25.04409, longitude: 55.24646, time: 2.0 },
-    { latitude: 25.04399, longitude: 55.24628, time: 2.0 },
-    { latitude: 25.04389, longitude: 55.24613, time: 2.0 },
-    { latitude: 25.04374, longitude: 55.24602, time: 2.0 },
-    { latitude: 25.04361, longitude: 55.24598, time: 2.0 },
-];
-
-
-
-var sim_route_idx = 0, sim_route_next_idx = 1;
-const sim_route_delta_t = 0.05;
-var sim_route_t = 0;
-var sim_latitude = 0, sim_longitude = 0; // eslint-disable-line no-unused-vars
 var current_location = latLng();
 
-function sim_route_step() {
-    sim_route_t += sim_route_delta_t;
-    if (sim_route_t >= sim_route[sim_route_idx].time) {
-        sim_route_t -= sim_route[sim_route_idx].time;
-        sim_route_idx = sim_route_next_idx;
-        sim_route_next_idx = (1 + sim_route_next_idx) % sim_route.length;
+import { Plugins } from '@capacitor/core';
+const { Geolocation } = Plugins;
+
+if (typeof cordova !== "undefined") {
+    // https://capacitorjs.com/docs/apis/geolocation#geolocationposition
+
+
+    const watch_location = function (loc, err) {
+        if (err) {
+            console.log("watch_location err=" + err);
+        }
+        else {
+            console.log("loc.timestamp=" + loc.timestamp);
+            console.log("loc.latitude=" + loc.latitude);
+            console.log("loc.longitude=" + loc.longitude);
+            current_location = transform_base(loc.latitude, loc.longitude);
+        }
     }
-    sim_latitude = (sim_route[sim_route_idx].latitude * (sim_route[sim_route_idx].time - sim_route_t) + sim_route[sim_route_next_idx].latitude * sim_route_t) / sim_route[sim_route_idx].time;
-    sim_longitude = (sim_route[sim_route_idx].longitude * (sim_route[sim_route_idx].time - sim_route_t) + sim_route[sim_route_next_idx].longitude * sim_route_t) / sim_route[sim_route_idx].time;
 
-    current_location = transform_base(sim_latitude, sim_longitude);
+    var location_watcher = Geolocation.watchPosition({
+        enableHighAccuracy: true,
+    },watch_location);
+
+    console.log("location_watcher=" + location_watcher);
+
+    // Geolocation.clearWatch({id: location_watcher});
 }
+else {
+    const sim_route = [
+        { latitude: 25.04334, longitude: 55.24618, time: 2.0 },
+        { latitude: 25.04334, longitude: 55.24633, time: 2.0 },
+        { latitude: 25.04342, longitude: 55.24647, time: 2.0 },
+        { latitude: 25.04353, longitude: 55.24652, time: 2.0 },
+        { latitude: 25.04369, longitude: 55.24649, time: 2.0 },
+        { latitude: 25.04381, longitude: 55.24642, time: 2.0 },
+        { latitude: 25.04398, longitude: 55.24646, time: 2.0 },
+        { latitude: 25.04413, longitude: 55.24652, time: 2.0 },
+        { latitude: 25.04442, longitude: 55.24666, time: 2.0 },
+        { latitude: 25.04472, longitude: 55.24681, time: 2.0 },
+        { latitude: 25.04494, longitude: 55.24691, time: 2.0 },
+        { latitude: 25.04515, longitude: 55.24702, time: 2.0 },
+        { latitude: 25.04531, longitude: 55.24710, time: 2.0 },
+        { latitude: 25.04538, longitude: 55.24721, time: 2.0 },
+        { latitude: 25.04542, longitude: 55.24731, time: 2.0 },
+        { latitude: 25.04550, longitude: 55.24739, time: 2.0 },
+        { latitude: 25.04562, longitude: 55.24743, time: 2.0 },
+        { latitude: 25.04570, longitude: 55.24741, time: 2.0 },
+        { latitude: 25.04575, longitude: 55.24732, time: 2.0 },
+        { latitude: 25.04575, longitude: 55.24723, time: 2.0 },
+        { latitude: 25.04571, longitude: 55.24716, time: 2.0 },
+        { latitude: 25.04564, longitude: 55.24714, time: 2.0 },
+        { latitude: 25.04558, longitude: 55.24713, time: 2.0 },
+        { latitude: 25.04553, longitude: 55.24715, time: 2.0 },
+        { latitude: 25.04544, longitude: 55.24713, time: 2.0 },
+        { latitude: 25.04531, longitude: 55.24708, time: 2.0 },
+        { latitude: 25.04511, longitude: 55.24699, time: 2.0 },
+        { latitude: 25.04469, longitude: 55.24677, time: 2.0 },
+        { latitude: 25.04455, longitude: 55.24671, time: 2.0 },
+        { latitude: 25.04440, longitude: 55.24664, time: 2.0 },
+        { latitude: 25.04426, longitude: 55.24656, time: 2.0 },
+        { latitude: 25.04409, longitude: 55.24646, time: 2.0 },
+        { latitude: 25.04399, longitude: 55.24628, time: 2.0 },
+        { latitude: 25.04389, longitude: 55.24613, time: 2.0 },
+        { latitude: 25.04374, longitude: 55.24602, time: 2.0 },
+        { latitude: 25.04361, longitude: 55.24598, time: 2.0 },
+    ];
 
-setInterval(sim_route_step, sim_route_delta_t * 1000);
+    var sim_route_idx = 0, sim_route_next_idx = 1;
+    const sim_route_delta_t = 0.05;
+    var sim_route_t = 0;
+    var sim_latitude = 0, sim_longitude = 0; // eslint-disable-line no-unused-vars
+
+    const sim_route_step = function () {
+        sim_route_t += sim_route_delta_t;
+        if (sim_route_t >= sim_route[sim_route_idx].time) {
+            sim_route_t -= sim_route[sim_route_idx].time;
+            sim_route_idx = sim_route_next_idx;
+            sim_route_next_idx = (1 + sim_route_next_idx) % sim_route.length;
+        }
+        sim_latitude = (sim_route[sim_route_idx].latitude * (sim_route[sim_route_idx].time - sim_route_t) + sim_route[sim_route_next_idx].latitude * sim_route_t) / sim_route[sim_route_idx].time;
+        sim_longitude = (sim_route[sim_route_idx].longitude * (sim_route[sim_route_idx].time - sim_route_t) + sim_route[sim_route_next_idx].longitude * sim_route_t) / sim_route[sim_route_idx].time;
+
+        current_location = transform_base(sim_latitude, sim_longitude);
+    }
+
+    setInterval(sim_route_step, sim_route_delta_t * 1000);
+}
 
 
 export {
