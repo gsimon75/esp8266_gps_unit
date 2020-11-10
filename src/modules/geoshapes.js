@@ -1,4 +1,13 @@
+import Vue from "vue";
 import { latLng } from "leaflet";
+
+var router, store;
+
+function register_context(r, s) {
+    router = r;
+    store = s;
+    console.log("geo registered vue context");
+}
 
 var base_A = [ 0.003042,  0.002915 ];
 var base_B = [ 0.002688, -0.003245 ];
@@ -148,7 +157,6 @@ for (let i in shop_coords) {
     },
 });*/
 
-var current_location = latLng();
 var simulation_enabled = [true];
 
 import { Plugins } from '@capacitor/core';
@@ -166,7 +174,7 @@ if (typeof cordova !== "undefined") {
             console.log("loc.timestamp=" + loc.timestamp);
             console.log("loc.latitude=" + loc.latitude);
             console.log("loc.longitude=" + loc.longitude);
-            current_location = transform_base(loc.latitude, loc.longitude);
+            Vue.set(store.state, "current_location", transform_base(loc.latitude, loc.longitude));
         }
     }
 
@@ -211,7 +219,8 @@ else {
     var sim_route_t = 0;
 
     const sim_route_step = function () {
-        if (simulation_enabled[0]) {
+        //if (simulation_enabled[0]) {
+        if (router.currentRoute.fullPath == "/site_map") {
             sim_route_t += sim_route_delta_t;
             if (sim_route_t >= sim_route[sim_route_idx].time) {
                 sim_route_t -= sim_route[sim_route_idx].time;
@@ -221,7 +230,7 @@ else {
             const sim_latitude = (sim_route[sim_route_idx].loc.lat * (sim_route[sim_route_idx].time - sim_route_t) + sim_route[sim_route_next_idx].loc.lat * sim_route_t) / sim_route[sim_route_idx].time;
             const sim_longitude = (sim_route[sim_route_idx].loc.lng * (sim_route[sim_route_idx].time - sim_route_t) + sim_route[sim_route_next_idx].loc.lng * sim_route_t) / sim_route[sim_route_idx].time;
 
-            current_location = latLng(sim_latitude, sim_longitude);
+            Vue.set(store.state, "current_location", latLng(sim_latitude, sim_longitude));
         }
     }
 
@@ -229,11 +238,13 @@ else {
 }
 
 
+
+
 export {
+    register_context,
     norm2latlng,
     shops,
     stations,
-    current_location,
     simulation_enabled,
 };
 
