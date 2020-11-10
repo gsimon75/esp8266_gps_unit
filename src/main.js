@@ -37,7 +37,7 @@ import SignIn from "./views/SignIn.vue";
 import Home from "./views/Home.vue";
 import About from "./views/About.vue";
 import Calendar from "./views/Calendar.vue";
-import NutritionTracker from "./views/NutritionTracker.vue";
+import TakeScooter from "./views/TakeScooter.vue";
 import DailyStatus from "./views/DailyStatus.vue";
 import TrainerTracker from "./views/TrainerTracker.vue";
 import Account from "./views/Account.vue";
@@ -153,9 +153,9 @@ const router = new VueRouter({
             component: Calendar
         },
         {
-            path: "/nutrition_tracker",
-            name: "Nutrition Tracker",
-            component: NutritionTracker
+            path: "/take_scooter",
+            name: "Take Scooter",
+            component: TakeScooter
         },
         {
             path: "/daily_status",
