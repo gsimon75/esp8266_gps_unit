@@ -1,7 +1,7 @@
 <template>
-    <div class="trainer-tracker fill-height">
+    <div class="site-map fill-height">
         <l-map
-            ref="trainerMap" @ready="map_is_ready"
+            ref="site_map" @ready="map_is_ready"
             :zoom="zoom"
             :center="center"
             :options="mapOptions"
@@ -15,7 +15,7 @@
             </l-control>
             <l-tile-layer :url="tile_url" :attribution="tile_attribution"/>
             <l-geo-json :geojson="shops" :optionsStyle="style_extractor"/>
-            <l-marker ref="trainerPos" :lat-lng="trainer_latlng"/>
+            <l-marker ref="current_pos" :lat-lng="$store.state.current_location"/>
 
             <template v-for="(st, st_id) in stations">
                 <l-marker :lat-lng="st.latLng" :key="st_id">
@@ -35,7 +35,6 @@
 
 <script>
 // @ is an alias to /src
-import { latLng } from "leaflet";
 import { LMap, LControl, LControlScale, LTileLayer, LGeoJson, LMarker, LIcon } from "vue2-leaflet";
 
 import { Icon } from "leaflet";
@@ -47,10 +46,10 @@ Icon.Default.mergeOptions({
     shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
 });
 
-import { norm2latlng, shops, stations, current_location } from "../modules/geoshapes";
+import { norm2latlng, shops, stations } from "../modules/geoshapes";
 
 export default {
-    name: "TrainerTracker",
+    name: "SiteMap",
     components: {
         LMap,
         LControl,
@@ -68,8 +67,6 @@ export default {
             center: norm2latlng([0.5, 0.5]),
 			zoom: 17,
 
-            marker_updater_id: false,
-            trainer_latlng: latLng(25.04460, 55.24686),
             currentZoom: false,
             currentCenter: false,
             showParagraph: false,
@@ -81,24 +78,21 @@ export default {
             stations,
         };
     },
-    computed: {
+    watch: {
+        "$store.state.current_location": function (loc) {
+            this.$store.state.app_bar_info = loc.lat.toFixed(4) + ", " + loc.lng.toFixed(4);
+        },
     },
     methods: {
         map_is_ready: function () {
             console.log("Map is ready");
-            this.map = this.$refs.trainerMap.mapObject;
-            this.marker_updater_id = setInterval(this.update_marker, 100);
+            this.map = this.$refs.site_map.mapObject;
         },
         zoomUpdate: function (zoom) {
             this.currentZoom = zoom;
         },
         centerUpdate: function (center) {
             this.currentCenter = center;
-        },
-        update_marker: function () {
-            this.trainer_latlng = current_location;
-            this.$store.state.app_bar_info = current_location.lat.toFixed(4) + ", " + current_location.lng.toFixed(4);
-            this.$refs.trainerPos.setLatLng(this.trainer_latlng);
         },
         style_extractor: function (feature) {
             return feature.properties;
@@ -107,13 +101,10 @@ export default {
         },
     },
     created: function() {
-        console.log("TrainerTracker created");
-        // this.$refs.trainerMap.mapObject.ANY_LEAFLET_MAP_METHOD();
+        console.log("SiteMap created");
+        // this.$refs.site_map.mapObject.ANY_LEAFLET_MAP_METHOD();
     },
     beforeDestroy: function () {
-        if (this.marker_updater_id) {
-            clearInterval(this.marker_updater_id);
-        }
         this.$store.state.app_bar_info = "..."
     },
 }

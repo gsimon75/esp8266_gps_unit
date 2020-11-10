@@ -25,9 +25,9 @@
                     <v-list-item-content>Calendar</v-list-item-content>
                 </v-list-item>
 
-                <v-list-item to="/trainer_tracker">
+                <v-list-item to="/site_map">
                     <v-list-item-icon><v-icon>fas fa-map-marked-alt</v-icon></v-list-item-icon>
-                    <v-list-item-content>Track trainer</v-list-item-content>
+                    <v-list-item-content>Site Map</v-list-item-content>
                 </v-list-item>
 
                 <v-list-item to="/account">
@@ -62,7 +62,7 @@
             <v-btn to="/take_scooter" text><v-icon>fas fa-bicycle</v-icon></v-btn>
             <v-btn to="/daily_status" text><v-icon>fas fa-tasks</v-icon></v-btn>
             <v-btn to="/calendar" text><v-icon>fas fa-calendar-alt</v-icon></v-btn>
-            <v-btn to="/trainer_tracker" text><v-icon>fas fa-map-marked-alt</v-icon></v-btn>
+            <v-btn to="/site_map" text><v-icon>fas fa-map-marked-alt</v-icon></v-btn>
          </v-bottom-navigation>
     </v-app>
 </template>
@@ -92,7 +92,7 @@ export default {
     created: function() {
         console.log("App created");
         //var def = "/calendar";
-        var def = "/trainer_tracker";
+        var def = "/site_map";
 
         if (!this.$store.getters.is_logged_in) {
             def = "/signin";

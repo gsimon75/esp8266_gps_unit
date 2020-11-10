@@ -39,9 +39,11 @@ import About from "./views/About.vue";
 import Calendar from "./views/Calendar.vue";
 import TakeScooter from "./views/TakeScooter.vue";
 import DailyStatus from "./views/DailyStatus.vue";
-import TrainerTracker from "./views/TrainerTracker.vue";
+import SiteMap from "./views/SiteMap.vue";
 import Account from "./views/Account.vue";
 import Settings from "./views/Settings.vue";
+
+import { latLng } from "leaflet";
 
 import { Plugins } from "@capacitor/core";
 const { SplashScreen } = Plugins;
@@ -60,6 +62,7 @@ const store = new Vuex.Store({
         app_bar_info: "...",
         auth_plugin: null,
         db: null,
+        current_location: latLng(0, 0),
     },
     getters: {
         app_type(state, getters, rootState) { // eslint-disable-line no-unused-vars
@@ -163,9 +166,9 @@ const router = new VueRouter({
             component: DailyStatus
         },
         {
-            path: "/trainer_tracker",
-            name: "Trainer Tracker",
-            component: TrainerTracker
+            path: "/site_map",
+            name: "Site Map",
+            component: SiteMap
         },
         {
             path: "/account",
@@ -192,6 +195,9 @@ const waitForStorageToBeReady = async (to, from, next) => {
 }
 router.beforeEach(waitForStorageToBeReady);
 
+// let the geo-dependent stuff know about the router and the store
+import { register_context as register_geo } from "./modules/geoshapes";
+register_geo(router, store);
 
 // main initialization starts here
 store.dispatch("init_auth_plugin").catch(error => {
