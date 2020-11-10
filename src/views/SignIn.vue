@@ -53,7 +53,7 @@ export default {
         sign_in_with_google: function () {
             this.$store.dispatch("sign_in_with_google").then(user => {
                     this.$store.commit("logged_in", user);
-                    this.$router.replace("/");
+                    this.$router.back();
             });
         },
     },

@@ -10,9 +10,9 @@
 
         <v-navigation-drawer v-model="drawer" app clipped>
              <v-list dense nav>
-                <v-list-item to="/nutrition_tracker">
-                    <v-list-item-icon><v-icon>fas fa-hamburger</v-icon></v-list-item-icon>
-                    <v-list-item-content>Track nutrition</v-list-item-content>
+                <v-list-item to="/take_scooter">
+                    <v-list-item-icon><v-icon>fas fa-bicycle</v-icon></v-list-item-icon>
+                    <v-list-item-content>Take scooter</v-list-item-content>
                 </v-list-item>
 
                 <v-list-item to="/daily_status">
@@ -59,7 +59,7 @@
         </v-main>
 
          <v-bottom-navigation color="primary" dark>
-            <v-btn to="/nutrition_tracker" text><v-icon>fas fa-hamburger</v-icon></v-btn>
+            <v-btn to="/take_scooter" text><v-icon>fas fa-bicycle</v-icon></v-btn>
             <v-btn to="/daily_status" text><v-icon>fas fa-tasks</v-icon></v-btn>
             <v-btn to="/calendar" text><v-icon>fas fa-calendar-alt</v-icon></v-btn>
             <v-btn to="/trainer_tracker" text><v-icon>fas fa-map-marked-alt</v-icon></v-btn>
@@ -98,7 +98,8 @@ export default {
             def = "/signin";
         }
         if (this.$route.fullPath !== def) {
-            this.$router.replace(def);
+            //this.$router.replace(def);
+            this.$router.push(def);
         }
     },
 };
