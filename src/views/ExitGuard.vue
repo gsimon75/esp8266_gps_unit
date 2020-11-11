@@ -5,26 +5,21 @@
 </template>
 
 <script>
-import { Plugins } from '@capacitor/core';
-const { App } = Plugins;
 
 export default {
     name: "ExitGuard",
     created: function() {
+        console.log("ExitGuard created");
         if (this.$store.state.is_started) {
             console.log("Exiting the app now");
             if (typeof cordova !== "undefined") {
-                App.exitApp();
+                console.log("TODO: Exit");
             }
         }
         else {
-            var def = "/site_map";
-            if (!this.$store.getters.is_logged_in) {
-                def = "/signin";
-            }
-            if (this.$route.fullPath !== def) {
-                this.$router.push(def);
-            }
+            console.log("Proceed to map");
+            this.$store.commit("mark_started", true);
+            this.$router.push("/site_map");
         }
     },
 }
