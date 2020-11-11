@@ -32,69 +32,25 @@ export default {
         return cfaSignOut().subscribe();
     },
     sign_in_with_google(context) {
-        return cfaSignIn('google.com').subscribe(user => {
-            console.log(JSON.stringify(user));
-            /*  with 
-                    return cfaSignIn('google.com').pipe(mapUserToUserInfo(),).subscribe(userInfo => { ...
-                the result is
-                    {
-                        "uid":"ygvq2lUBcEfELua5yBah6q5m38m2",
-                        "providerId":"firebase",
-                        "displayName":"Gabor Simon",
-                        "photoURL":"https://lh6.googleusercontent.com/-VTAQRrr_qTQ/AAAAAAAAAAI/AAAAAAAAAAA/AMZuucljlOq9zOypoV3XFHOZjKPnGUbc6g/s96-c/photo.jpg",
-                        "phoneNumber":null,
-                        "email":"gabor.simon75@gmail.com"
-                    }
-            */
-
-            /* without mapUserToUserInfo:
-             *
-                {
-                    "uid":"ygvq2lUBcEfELua5yBah6q5m38m2",
-                    "displayName":"Gabor Simon",
-                    "photoURL":"https://lh6.googleusercontent.com/-VTAQRrr_qTQ/AAAAAAAAAAI/AAAAAAAAAAA/AMZuucljlOq9zOypoV3XFHOZjKPnGUbc6g/s96-c/photo.jpg",
-                    "email":"gabor.simon75@gmail.com",
-                    "emailVerified":true,
-                    "phoneNumber":null,
-                    "isAnonymous":false,
-                    "tenantId":null,
-                    "providerData":[
-                        {
-                            "uid":"106223510888703572487",
-                            "displayName":"Gabor Simon",
-                            "photoURL":"https://lh6.googleusercontent.com/-VTAQRrr_qTQ/AAAAAAAAAAI/AAAAAAAAAAA/AMZuucljlOq9zOypoV3XFHOZjKPnGUbc6g/s96-c/photo.jpg",
-                            "email":"gabor.simon75@gmail.com",
-                            "phoneNumber":null,
-                            "providerId":"google.com"
-                        }
-                    ],
-                    "apiKey":"AIzaSyAa8vGbPDQDOtF4cjKqYa_b99hK7KSPqBI",
-                    "appName":"[DEFAULT]",
-                    "authDomain":"scooterfleet.firebaseapp.com",
-                    "stsTokenManager":{
-                        "apiKey":"AIzaSyAa8vGbPDQDOtF4cjKqYa_b99hK7KSPqBI",
-                        "refreshToken":"AG8BC...iwFXw",
-                        "accessToken":"eyJhbGc...ZWr-RWzn_hw",
-                        "expirationTime":1605119363000
-                    },
-                    "redirectEventId":null,
-                    "lastLoginAt":"1605115763653",
-                    "createdAt":"1605007223334",
-                    "multiFactor":{
-                        "enrolledFactors":[]
-                    }
-                }
-             */
-            user.getIdToken(true).then(idToken => {
-                context.commit("logged_in", {
-                    name: user.displayName,
-                    email: user.email,
-                    photo_url: user.photoURL,
-                    id_token: idToken,
-                    provider_id: user.providerId,
-                    uid: user.uid,
+        return new Promise((resolve, reject) => {
+            try {
+                cfaSignIn('google.com').subscribe(user => {
+                    console.log(JSON.stringify(user));
+                    user.getIdToken(true).then(idToken => {
+                        resolve({
+                            name: user.displayName,
+                            email: user.email,
+                            photo_url: user.photoURL,
+                            id_token: idToken,
+                            provider_id: user.providerId,
+                            uid: user.uid,
+                        });
+                    });
                 });
-            });
+            }
+            catch (e) {
+                reject(e);
+            }
         });
     },
 };

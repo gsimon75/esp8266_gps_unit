@@ -157,6 +157,10 @@ export default {
     created: function() {
         console.log("SiteMap created");
         // this.$refs.site_map.mapObject.ANY_LEAFLET_MAP_METHOD();
+        if (!this.$store.getters.is_logged_in) {
+            console.log("Not signed in, proceed to sign-in");
+            this.$router.push("/signin");
+        }
     },
     beforeDestroy: function () {
         this.$store.state.app_bar_info = "..."
