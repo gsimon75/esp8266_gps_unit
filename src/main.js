@@ -35,13 +35,10 @@ import App from "./App.vue";
 import NotFound from "./views/NotFound.vue";
 import SignIn from "./views/SignIn.vue";
 import Home from "./views/Home.vue";
-import About from "./views/About.vue";
-import Calendar from "./views/Calendar.vue";
 import TakeScooter from "./views/TakeScooter.vue";
-import DailyStatus from "./views/DailyStatus.vue";
+import ReturnScooter from "./views/ReturnScooter.vue";
 import SiteMap from "./views/SiteMap.vue";
 import Account from "./views/Account.vue";
-import Settings from "./views/Settings.vue";
 
 import { latLng } from "leaflet";
 
@@ -63,11 +60,19 @@ const store = new Vuex.Store({
         auth_plugin: null,
         db: null,
         current_location: latLng(0, 0),
+        fake_scooter_id_generator: 0,
+        scooters_in_use: [],
     },
     getters: {
         app_type(state, getters, rootState) { // eslint-disable-line no-unused-vars
             return (typeof cordova === "undefined") ? "web" : "mobile";
         },
+        scooter_id(state, getters, rootState) { // eslint-disable-line no-unused-vars
+            return state.fake_scooter_id_generator;
+        },
+        scooters_in_use(state, getters, rootState) { // eslint-disable-line no-unused-vars
+            return state.scooters_in_use;
+        }
     },
     mutations: {
         set_auth_plugin(state, x) {
@@ -75,6 +80,18 @@ const store = new Vuex.Store({
         },
         set_db(state, x) {
             state.db = x;
+        },
+        next_scooter_id(state) {
+            state.fake_scooter_id_generator += 1 + Math.floor(Math.random() * 8);
+        },
+        take_scooter(state, id) {
+            state.scooters_in_use.push(id);
+        },
+        return_scooter(state, id) {
+            const idx = state.scooters_in_use.indexOf(id);
+            if (idx >= 0) {
+                state.scooters_in_use.splice(idx, 1);
+            }
         },
     },
     actions: {
@@ -146,24 +163,14 @@ const router = new VueRouter({
             component: Home
         },
         {
-            path: "/about",
-            name: "About",
-            component: About
-        },
-        {
-            path: "/calendar",
-            name: "Calendar",
-            component: Calendar
-        },
-        {
             path: "/take_scooter",
             name: "Take Scooter",
             component: TakeScooter
         },
         {
-            path: "/daily_status",
-            name: "Daily Status",
-            component: DailyStatus
+            path: "/return_scooter",
+            name: "Return Scooter",
+            component: ReturnScooter
         },
         {
             path: "/site_map",
@@ -174,11 +181,6 @@ const router = new VueRouter({
             path: "/account",
             name: "Account",
             component: Account
-        },
-        {
-            path: "/settings",
-            name: "Settings",
-            component: Settings
         },
         {
             path: "*",

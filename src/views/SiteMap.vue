@@ -47,6 +47,18 @@
 // @ is an alias to /src
 import { LMap, LControl, LControlScale, LTileLayer, LGeoJson, LMarker, LIcon } from "vue2-leaflet";
 
+/* NOTE: when navigating away from this view, exceptions will be thrown:
+   leaflet-src.js:2449 Uncaught TypeError: Cannot read property '_leaflet_pos' of undefined
+    at getPosition (leaflet-src.js:2449)
+    at NewClass._getMapPanePos (leaflet-src.js:4438)
+    at NewClass._moved (leaflet-src.js:4442)
+    at NewClass.getCenter (leaflet-src.js:3797)
+    at VueComponent.moveEndHandler (LMap.js:439)
+    at eval (LMap.js:18)
+
+   The issue has already been dealt with: https://github.com/vue-leaflet/Vue2Leaflet/issues/613
+   */
+
 import { Icon } from "leaflet";
 
 delete Icon.Default.prototype._getIconUrl;
@@ -56,7 +68,7 @@ Icon.Default.mergeOptions({
     shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
 });
 
-import { norm2latlng, shops, stations } from "../modules/geoshapes";
+import { norm2latlng, nearest_station, shops, stations } from "../modules/geoshapes";
 
 export default {
     name: "SiteMap",
@@ -83,7 +95,6 @@ export default {
             auto_center: true,
             centering_in_progress: true,
             center_timer: null,
-            showMap: true,
             shops,
             stations,
         };
@@ -117,17 +128,20 @@ export default {
             return feature.properties;
         },
         nearest_to_take: function () {
-            const eligible_stations = stations.filter(st => st.ready > 0);
-            if (eligible_stations.length > 0) {
-                const best_station = eligible_stations
-                    .map(st => { return { ...st, d: st.loc.distanceTo(this.$store.state.current_location)}; })
-                    .reduce((best, st) => (st.d < best.d) ? st : best);
+            const best_station = nearest_station(stations.filter(st => st.ready > 0));
+            if (best_station !== undefined) {
                 console.log("nearest_to_take: " + JSON.stringify(best_station));
                 this.auto_center = false;
                 this.$refs.site_map.setCenter(best_station.loc);
             }
         },
         nearest_to_return: function () {
+            const best_station = nearest_station(stations.filter(st => st.free > 0));
+            if (best_station !== undefined) {
+                console.log("nearest_to_take: " + JSON.stringify(best_station));
+                this.auto_center = false;
+                this.$refs.site_map.setCenter(best_station.loc);
+            }
         },
     },
     created: function() {

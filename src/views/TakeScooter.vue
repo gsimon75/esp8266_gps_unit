@@ -5,12 +5,12 @@
         -->
         <div>
             <div class="circle green white--text ma-auto">
-                <i class="fa fa-motorcycle fa-10x"></i>
+                <i class="fa fa-biking fa-10x"></i>
             </div>
         </div>
 
         <div>
-            <h1>Scooter #41</h1>
+            <h1>Scooter #{{ scooter_id }}</h1>
         </div>
         <div class="d-flex flex-row justify-space-between">
             <h1>Battery:</h1>
@@ -44,33 +44,25 @@
 </template>
 
 <script>
-import { simulation_enabled } from "../modules/geoshapes";
 
 export default {
     name: "TakeScooter",
     data () {
         return {
             scanning_qr_code: true,
+            scooter_id: "",
         };
-    },
-    computed: {
     },
     methods: {
         qr_scan_done: function () {
+            this.$store.commit("next_scooter_id");
+            this.scooter_id = this.$store.getters.scooter_id;
             this.scanning_qr_code = false;
         },
         take_scooter: function () {
-            simulation_enabled[0] = true;
+            this.$store.commit("take_scooter", this.scooter_id);
             this.$router.back();
         },
-
-        debug: function() {
-            alert("yadda");
-        },
-    },
-    created: function() {
-        console.log("TakeScooter created");
-        simulation_enabled[0] = false;
     },
 }
 
