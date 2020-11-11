@@ -21,7 +21,7 @@
             </l-control>
             <l-tile-layer :url="tile_url" :attribution="tile_attribution"/>
             <l-geo-json :geojson="shops" :optionsStyle="style_extractor"/>
-            <l-marker ref="current_pos" :lat-lng="$store.state.current_location"/>
+            <l-marker ref="current_pos" :icon="($store.getters.scooters_in_use.length > 0) ? icon_biking : null" :lat-lng="$store.state.current_location"/>
 
             <template v-for="st in stations">
                 <l-marker :lat-lng="st.loc" :key="st.id">
@@ -45,6 +45,7 @@
 
 <script>
 // @ is an alias to /src
+import L from "leaflet";
 import { LMap, LControl, LControlScale, LTileLayer, LGeoJson, LMarker, LIcon } from "vue2-leaflet";
 
 /* NOTE: when navigating away from this view, exceptions will be thrown:
@@ -63,9 +64,18 @@ import { Icon } from "leaflet";
 
 delete Icon.Default.prototype._getIconUrl;
 Icon.Default.mergeOptions({
-    iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
     iconUrl: require("leaflet/dist/images/marker-icon.png"),
     shadowUrl: require("leaflet/dist/images/marker-shadow.png"),
+    iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
+});
+
+const icon_biking = L.icon({
+    iconUrl: require("../assets/marker-biking.png"),
+    shadowUrl: require("../assets/marker-biking-shadow.png"),
+    iconRetinaUrl: require("../assets/marker-biking-2x.png"),
+    iconSize: [ 52, 41 ],
+    shadowSize: [ 52, 41 ],
+    iconAnchor: [ 26, 41 ],
 });
 
 import { norm2latlng, nearest_station, shops, stations } from "../modules/geoshapes";
@@ -88,7 +98,7 @@ export default {
             map: false,
             currentCenter: norm2latlng([0.5, 0.5]),
             currentZoom: 17,
-
+            icon_biking,
             mapOptions: {
                 zoomSnap: 0.5
             },
