@@ -60,14 +60,7 @@ export default {
     }),
     created: function() {
         console.log("App created");
-        var def = "/site_map";
-
-        if (!this.$store.getters.is_logged_in) {
-            def = "/signin";
-        }
-        if (this.$route.fullPath !== def) {
-            this.$router.push(def);
-        }
+        this.$router.push("/exit_guard");
     },
 };
 </script>
