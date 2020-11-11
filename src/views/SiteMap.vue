@@ -2,28 +2,38 @@
     <div class="site-map fill-height">
         <l-map
             ref="site_map" @ready="map_is_ready"
-            :zoom="zoom"
-            :center="center"
+            :zoom="currentZoom"
+            :center="currentCenter"
             :options="mapOptions"
+            :noBlockingAnimations="false"
             style="height: 100%"
             @update:center="centerUpdate"
             @update:zoom="zoomUpdate"
+            @dragstart="user_drag"
         >
             <l-control-scale position="topright" :imperial="false" :metric="true"/>
             <l-control position="bottomleft" >
-                <v-btn small color="primary" @click="nearest_station">Nearest<br>Station</v-btn>
+                <v-btn small color="primary" @click="nearest_to_take">Nearest<br>to take</v-btn>
+                <v-btn small color="error" @click="nearest_to_return">Nearest<br>to return</v-btn>
+            </l-control>
+            <l-control position="bottomright" >
+                <v-btn fab color="primary" @click="enable_auto_center"><v-icon>fas fa-crosshairs</v-icon></v-btn>
             </l-control>
             <l-tile-layer :url="tile_url" :attribution="tile_attribution"/>
             <l-geo-json :geojson="shops" :optionsStyle="style_extractor"/>
             <l-marker ref="current_pos" :lat-lng="$store.state.current_location"/>
 
-            <template v-for="(st, st_id) in stations">
-                <l-marker :lat-lng="st.latLng" :key="st_id">
+            <template v-for="st in stations">
+                <l-marker :lat-lng="st.loc" :key="st.id">
                     <l-icon :icon-size="[40, 36]">
-                        <v-badge :color="st.ready ? 'green' : 'red'" :content="st.ready + '/' + st.free">
-                            <v-icon large>
+                        <v-badge color="blue" :content="st.id" left>
+                        <v-badge :value="st.ready" color="green" :content="st.ready" overlap>
+                        <v-badge :value="st.free" color="red" :content="st.free" bottom overlap>
+                            <v-icon large color="black">
                                 fas fa-charging-station
                             </v-icon>
+                        </v-badge>
+                        </v-badge>
                         </v-badge>
                     </l-icon>
                 </l-marker>
@@ -64,15 +74,15 @@ export default {
             tile_url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
             tile_attribution: "&copy; <a href=\"http://osm.org/copyright\">OpenStreetMap</a> contributors",
             map: false,
-            center: norm2latlng([0.5, 0.5]),
-			zoom: 17,
+            currentCenter: norm2latlng([0.5, 0.5]),
+            currentZoom: 17,
 
-            currentZoom: false,
-            currentCenter: false,
-            showParagraph: false,
             mapOptions: {
                 zoomSnap: 0.5
             },
+            auto_center: true,
+            centering_in_progress: true,
+            center_timer: null,
             showMap: true,
             shops,
             stations,
@@ -81,6 +91,9 @@ export default {
     watch: {
         "$store.state.current_location": function (loc) {
             this.$store.state.app_bar_info = loc.lat.toFixed(4) + ", " + loc.lng.toFixed(4);
+            if (this.auto_center) { // meters
+                this.$refs.site_map.setCenter(loc);
+            }
         },
     },
     methods: {
@@ -94,10 +107,27 @@ export default {
         centerUpdate: function (center) {
             this.currentCenter = center;
         },
+        user_drag: function() {
+            this.auto_center = false;
+        },
+        enable_auto_center: function() {
+            this.auto_center = true;
+        },
         style_extractor: function (feature) {
             return feature.properties;
         },
-        nearest_station: function () {
+        nearest_to_take: function () {
+            const eligible_stations = stations.filter(st => st.ready > 0);
+            if (eligible_stations.length > 0) {
+                const best_station = eligible_stations
+                    .map(st => { return { ...st, d: st.loc.distanceTo(this.$store.state.current_location)}; })
+                    .reduce((best, st) => (st.d < best.d) ? st : best);
+                console.log("nearest_to_take: " + JSON.stringify(best_station));
+                this.auto_center = false;
+                this.$refs.site_map.setCenter(best_station.loc);
+            }
+        },
+        nearest_to_return: function () {
         },
     },
     created: function() {

@@ -60,26 +60,29 @@ const shop_coords = [
     [ [0.7, 0.8], [0.9, 0.75], [0.7, 0.95], ],
 ];
 
-const stations = {
-    "A": {
-        latLng: norm2latlng([0.0, 0.0]),
+const stations = [
+    {
+        id: "Alpha",
+        loc: norm2latlng([0.0, 0.0]),
         ready: 4,
         charging: 3,
         free: 1,
     },
-    "B": {
-        latLng: norm2latlng([0.25, 0.5]),
+    {
+        id: "Beta",
+        loc: norm2latlng([0.25, 0.5]),
         ready: 1,
         charging: 5,
         free: 2,
     },
-    "C": {
-        latLng: norm2latlng([1.0, 1.0]),
+    {
+        id: "Gamma",
+        loc: norm2latlng([1.0, 1.0]),
         ready: 0,
         charging: 2,
         free: 6,
     },
-};
+];
 
 const shops = {
     type: "FeatureCollection",
