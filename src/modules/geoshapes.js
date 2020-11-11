@@ -84,6 +84,15 @@ const stations = [
     },
 ];
 
+function nearest_station(eligible_stations) {
+    if (eligible_stations.length == 0) {
+        return undefined;
+    }
+    return eligible_stations
+        .map(st => { return { ...st, d: st.loc.distanceTo(store.state.current_location)}; })
+        .reduce((best, st) => (st.d < best.d) ? st : best);
+}
+
 const shops = {
     type: "FeatureCollection",
     features: [],
@@ -160,8 +169,6 @@ for (let i in shop_coords) {
     },
 });*/
 
-var simulation_enabled = [true];
-
 import { Plugins } from '@capacitor/core';
 const { Geolocation } = Plugins;
 
@@ -222,7 +229,6 @@ else {
     var sim_route_t = 0;
 
     const sim_route_step = function () {
-        //if (simulation_enabled[0]) {
         if (router.currentRoute.fullPath == "/site_map") {
             sim_route_t += sim_route_delta_t;
             if (sim_route_t >= sim_route[sim_route_idx].time) {
@@ -246,9 +252,9 @@ else {
 export {
     register_context,
     norm2latlng,
+    nearest_station,
     shops,
     stations,
-    simulation_enabled,
 };
 
 // vim: set sw=4 ts=4 indk= et:

@@ -11,18 +11,13 @@
         <v-navigation-drawer v-model="drawer" app clipped>
              <v-list dense nav>
                 <v-list-item to="/take_scooter">
-                    <v-list-item-icon><v-icon>fas fa-bicycle</v-icon></v-list-item-icon>
+                    <v-list-item-icon><v-icon>fas fa-biking</v-icon></v-list-item-icon>
                     <v-list-item-content>Take scooter</v-list-item-content>
                 </v-list-item>
 
-                <v-list-item to="/daily_status">
-                    <v-list-item-icon><v-icon>fas fa-tasks</v-icon></v-list-item-icon>
-                    <v-list-item-content>Daily status</v-list-item-content>
-                </v-list-item>
-
-                <v-list-item to="/calendar">
-                    <v-list-item-icon><v-icon>fas fa-calendar-alt</v-icon></v-list-item-icon>
-                    <v-list-item-content>Calendar</v-list-item-content>
+                <v-list-item to="/return_scooter">
+                    <v-list-item-icon><v-icon>fas fa-bicycle</v-icon></v-list-item-icon>
+                    <v-list-item-content>Return scooter</v-list-item-content>
                 </v-list-item>
 
                 <v-list-item to="/site_map">
@@ -33,16 +28,6 @@
                 <v-list-item to="/account">
                     <v-list-item-icon><v-icon>fas fa-user</v-icon></v-list-item-icon>
                     <v-list-item-content>Account</v-list-item-content>
-                </v-list-item>
-
-                <v-list-item to="/settings">
-                    <v-list-item-icon><v-icon>fas fa-ellipsis-v</v-icon></v-list-item-icon>
-                    <v-list-item-content>Settings</v-list-item-content>
-                </v-list-item>
-
-                <v-list-item to="/about">
-                    <v-list-item-icon><v-icon>fas fa-question</v-icon></v-list-item-icon>
-                    <v-list-item-content>About</v-list-item-content>
                 </v-list-item>
 
                 <v-list-item to="/signin">
@@ -59,20 +44,23 @@
         </v-main>
 
          <v-bottom-navigation color="primary" dark>
-            <v-btn to="/take_scooter" text><v-icon>fas fa-bicycle</v-icon></v-btn>
-            <v-btn to="/daily_status" text><v-icon>fas fa-tasks</v-icon></v-btn>
-            <v-btn to="/calendar" text><v-icon>fas fa-calendar-alt</v-icon></v-btn>
+            <v-btn to="/take_scooter" text :disabled="!near_station || (near_station.ready <= 0)"><v-icon>fas fa-biking</v-icon></v-btn>
+            <v-btn to="/return_scooter" text :disabled="!near_station || (near_station.free <= 0) || ($store.getters.scooters_in_use.length == 0)"><v-icon>fas fa-bicycle</v-icon></v-btn>
+            <v-btn to="/" text :disabled="true"><v-icon>fas fa-home</v-icon></v-btn>
             <v-btn to="/site_map" text><v-icon>fas fa-map-marked-alt</v-icon></v-btn>
          </v-bottom-navigation>
     </v-app>
 </template>
 
 <script>
+import { nearest_station, stations } from "./modules/geoshapes";
 
 export default {
     name: "app",
     data: () => ({
         drawer: null,
+        station_proximity_range: 10, // meters
+        near_station: null,
     }),
     components: {
     },
@@ -89,16 +77,30 @@ export default {
     },
     computed: {
     },
+    watch: {
+        "$store.state.current_location": function (loc) {
+            if (this.near_station) {
+                const dist = loc.distanceTo(this.near_station.loc);
+                if (dist > this.station_proximity_range) {
+                    this.near_station = null;
+                }
+            }
+            else {
+                const best_station = nearest_station(stations);
+                if ((best_station !== undefined) && (best_station.d <= this.station_proximity_range)) {
+                    this.near_station = best_station;
+                }
+            }
+        },
+    },
     created: function() {
         console.log("App created");
-        //var def = "/calendar";
         var def = "/site_map";
 
         if (!this.$store.getters.is_logged_in) {
             def = "/signin";
         }
         if (this.$route.fullPath !== def) {
-            //this.$router.replace(def);
             this.$router.push(def);
         }
     },
