@@ -12,11 +12,6 @@ var base_A = [ 0.003042,  0.002915 ];
 var base_B = [ 0.002688, -0.003245 ];
 const base_P = [ 25.113366, 55.169192 ];
 
-const base_det = base_A[0] * base_B[1] - base_A[1] * base_B[0];
-
-const base_Am = [ base_A[0] / base_det, base_A[1] / base_det ];
-const base_Bm = [ base_B[0] / base_det, base_B[1] / base_det ];
-
 function norm2latlng(p) {
     p = scale(0.5, 0.5, 0.8, p);
     return latLng(base_P[0] + p[0]*base_A[0] + p[1]*base_B[0], base_P[1] + p[0]*base_A[1] + p[1]*base_B[1]);
@@ -31,18 +26,6 @@ function norm2lnglat(p) {
 
 function scale(cx, cy, m, p) {
     return [ cx + (p[0] - cx) * m, cy + (p[1] - cy) * m ];
-}
-
-function transform_base(lat, lng) {
-    const p = [ lat - base_P[0], lng - base_P[1] ];
-
-    var a =  p[0]*base_Bm[1] - p[1]*base_Bm[0];
-    var b = -p[0]*base_Am[1] + p[1]*base_Am[0];
-
-    a = (a >= 0) ? (a % 1) : 1 + (a % 1);
-    b = (b >= 0) ? (b % 1) : 1 + (b % 1);
-
-    return norm2latlng([a, b]);
 }
 
 const shop_coords = [
@@ -168,8 +151,24 @@ for (let i in shop_coords) {
     },
 });*/
 
-import { Plugins } from '@capacitor/core';
+/*import { Plugins } from '@capacitor/core';
 const { Geolocation } = Plugins;
+
+const base_det = base_A[0] * base_B[1] - base_A[1] * base_B[0];
+const base_Am = [ base_A[0] / base_det, base_A[1] / base_det ];
+const base_Bm = [ base_B[0] / base_det, base_B[1] / base_det ];
+
+function transform_base(lat, lng) {
+    const p = [ lat - base_P[0], lng - base_P[1] ];
+
+    var a =  p[0]*base_Bm[1] - p[1]*base_Bm[0];
+    var b = -p[0]*base_Am[1] + p[1]*base_Am[0];
+
+    a = (a >= 0) ? (a % 1) : 1 + (a % 1);
+    b = (b >= 0) ? (b % 1) : 1 + (b % 1);
+
+    return norm2latlng([a, b]);
+}
 
 if (typeof cordova !== "undefined") {
     // https://capacitorjs.com/docs/apis/geolocation#geolocationposition
@@ -195,7 +194,7 @@ if (typeof cordova !== "undefined") {
 
     // Geolocation.clearWatch({id: location_watcher});
 }
-else {
+else*/ {
     const sim_route = [
         { loc: norm2latlng([ 0, 0]), time: 4.0 },
         { loc: norm2latlng([ 0, 0.25]), time: 2.0 },
@@ -244,9 +243,6 @@ else {
 
     setInterval(sim_route_step, sim_route_delta_t * 1000);
 }
-
-
-
 
 export {
     register_context,
