@@ -32,6 +32,7 @@ import "leaflet/dist/leaflet.css";
 
 import App from "./App.vue";
 
+import ExitGuard from "./views/ExitGuard.vue";
 import NotFound from "./views/NotFound.vue";
 import SignIn from "./views/SignIn.vue";
 import Home from "./views/Home.vue";
@@ -60,6 +61,7 @@ const station_proximity_range = 10; // meters
 
 const store = new Vuex.Store({
     state: {
+        is_started: false,
         app_bar_info: "...",
         auth_plugin: null,
         db: null,
@@ -80,6 +82,9 @@ const store = new Vuex.Store({
         }
     },
     mutations: {
+        mark_started(state, x) {
+            state.is_started = x;
+        },
         set_auth_plugin(state, x) {
             state.auth_plugin = x;
         },
@@ -188,6 +193,11 @@ const router = new VueRouter({
     mode: "history",
     base: process.env.BASE_URL,
     routes: [
+        {
+            path: "/exit_guard",
+            name: "Exit Guard",
+            component: ExitGuard
+        },
         {
             path: "/signin",
             name: "Sign In",
