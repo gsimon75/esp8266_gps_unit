@@ -13,7 +13,7 @@ export default {
         if (this.$store.state.is_started) {
             console.log("Exiting the app now");
             if (typeof cordova !== "undefined") {
-                console.log("TODO: Exit");
+                navigator.app.exitApp();
             }
         }
         else {
