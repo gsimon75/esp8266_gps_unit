@@ -40,7 +40,6 @@
 
         <v-main style="height: calc(100vh - 48px - 56px); overflow-y: scroll; z-index:0;">
             <router-view/>
-            <!--v-btn @click="dbg">debug</v-btn-->
         </v-main>
 
          <v-bottom-navigation color="primary" dark>
@@ -59,17 +58,6 @@ export default {
     data: () => ({
         drawer: null,
     }),
-    methods: {
-        do_sign_out: function () {
-            this.$store.dispatch("sign_out").then(() => {
-                    this.$store.commit("logged_out");
-                    //this.$router.replace("/signin");
-            });
-        },
-        dbg: function () {
-            alert("debug");
-        },
-    },
     created: function() {
         console.log("App created");
         var def = "/site_map";
