@@ -15,9 +15,6 @@ Vue.use(Vuetify);
 import en from "vuetify/es5/locale/en";
 import ar from "vuetify/es5/locale/ar";
 
-import S4Date from "./plugins/S4Date";
-Vue.use(S4Date);
-
 import Vuex from "vuex";
 Vue.use(Vuex);
 
@@ -47,7 +44,6 @@ import { Plugins } from "@capacitor/core";
 const { SplashScreen } = Plugins;
 
 import auth from "./modules/auth";
-//import nutrients from "./modules/nutrients";
 
 import { nearest_station, stations } from "./modules/geoshapes";
 
@@ -155,7 +151,6 @@ const store = new Vuex.Store({
     },
     modules: {
         auth: auth,
-        //nutrients: nutrients,
     },
     plugins: [vuexLocalStorage.plugin],
 });
