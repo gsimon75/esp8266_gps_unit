@@ -1,4 +1,3 @@
-import Vue from "vue";
 import { latLng } from "leaflet";
 
 var router, store;
@@ -184,7 +183,7 @@ if (typeof cordova !== "undefined") {
             console.log("loc.timestamp=" + loc.timestamp);
             console.log("loc.latitude=" + loc.latitude);
             console.log("loc.longitude=" + loc.longitude);
-            Vue.set(store.state, "current_location", transform_base(loc.latitude, loc.longitude));
+            store.commit("set_location", transform_base(loc.latitude, loc.longitude));
         }
     }
 
@@ -239,7 +238,7 @@ else {
             const sim_latitude = (sim_route[sim_route_idx].loc.lat * (sim_route[sim_route_idx].time - sim_route_t) + sim_route[sim_route_next_idx].loc.lat * sim_route_t) / sim_route[sim_route_idx].time;
             const sim_longitude = (sim_route[sim_route_idx].loc.lng * (sim_route[sim_route_idx].time - sim_route_t) + sim_route[sim_route_next_idx].loc.lng * sim_route_t) / sim_route[sim_route_idx].time;
 
-            Vue.set(store.state, "current_location", latLng(sim_latitude, sim_longitude));
+            store.commit("set_location", latLng(sim_latitude, sim_longitude));
         }
     }
 
