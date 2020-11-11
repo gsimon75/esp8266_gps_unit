@@ -223,7 +223,7 @@ else*/ {
     ];
 
     var sim_route_idx = 0, sim_route_next_idx = 1;
-    const sim_route_delta_t = 0.05;
+    const sim_route_delta_t = 0.2;
     var sim_route_t = 0;
 
     const sim_route_step = function () {

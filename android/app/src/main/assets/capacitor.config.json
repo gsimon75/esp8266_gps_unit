@@ -1,1 +1,1 @@
-{"appId":"com.wodeewa.alpha.ScooterFleet","appName":"ScooterFleet","bundledWebRuntime":false,"webDir":"/home/fules/src/scooter_fleet_client/dist/bundled"}
+{"appId":"com.wodeewa.alpha.ScooterFleet","appName":"ScooterFleet","bundledWebRuntime":false,"webDir":"/home/fules/src/scooter_fleet_client/dist/bundled","android":{"webContentsDebuggingEnabled":true},"plugins":{"CapacitorFirebaseAuth":{"providers":["google.com"],"languageCode":"en","nativeAuth":false,"permissions":{}}}}
