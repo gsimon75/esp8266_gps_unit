@@ -48,11 +48,15 @@ const { SplashScreen } = Plugins;
 import auth from "./modules/auth";
 //import nutrients from "./modules/nutrients";
 
+import { nearest_station, stations } from "./modules/geoshapes";
+
 const vuexLocalStorage = new VuexPersist({
     key: "vuex",
     storage: window.localStorage,
     modules: ["auth"],
 });
+       
+const station_proximity_range = 10; // meters
 
 const store = new Vuex.Store({
     state: {
@@ -62,6 +66,7 @@ const store = new Vuex.Store({
         current_location: latLng(0, 0),
         fake_scooter_id_generator: 0,
         scooters_in_use: [],
+        near_station: null,
     },
     getters: {
         app_type(state, getters, rootState) { // eslint-disable-line no-unused-vars
@@ -86,11 +91,42 @@ const store = new Vuex.Store({
         },
         take_scooter(state, id) {
             state.scooters_in_use.push(id);
+            if (state.near_station && (state.near_station.ready > 0)) {
+                state.near_station.ready--;
+                state.near_station.free++;
+            }
         },
         return_scooter(state, id) {
             const idx = state.scooters_in_use.indexOf(id);
             if (idx >= 0) {
                 state.scooters_in_use.splice(idx, 1);
+                if (state.near_station && (state.near_station.free > 0)) {
+                    state.near_station.free--;
+                    state.near_station.ready++;
+                }
+            }
+        },
+        set_location(state, loc) {
+            state.current_location = loc;
+            if (state.near_station) {
+                const dist = loc.distanceTo(state.near_station.loc);
+                if (dist > station_proximity_range) {
+                    console.log("Leaving station");
+                    state.near_station = null;
+                }
+            }
+            else {
+                const best_station = nearest_station(stations);
+                if ((best_station !== undefined) && (best_station.d <= station_proximity_range)) {
+                    const st = stations.find(st => st.id == best_station.id);
+                    if (st !== undefined) {
+                        state.near_station = st;
+                        console.log("Entering station " + st.id);
+                    }
+                    else {
+                        state.near_station = null;
+                    }
+                }
             }
         },
     },

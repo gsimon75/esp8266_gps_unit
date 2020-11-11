@@ -44,8 +44,8 @@
         </v-main>
 
          <v-bottom-navigation color="primary" dark>
-            <v-btn to="/take_scooter" text :disabled="!near_station || (near_station.ready <= 0)"><v-icon>fas fa-biking</v-icon></v-btn>
-            <v-btn to="/return_scooter" text :disabled="!near_station || (near_station.free <= 0) || ($store.getters.scooters_in_use.length == 0)"><v-icon>fas fa-bicycle</v-icon></v-btn>
+            <v-btn to="/take_scooter" text :disabled="!$store.state.near_station || ($store.state.near_station.ready <= 0)"><v-icon>fas fa-biking</v-icon></v-btn>
+            <v-btn to="/return_scooter" text :disabled="!$store.state.near_station || ($store.state.near_station.free <= 0) || ($store.getters.scooters_in_use.length == 0)"><v-icon>fas fa-bicycle</v-icon></v-btn>
             <v-btn to="/" text :disabled="true"><v-icon>fas fa-home</v-icon></v-btn>
             <v-btn to="/site_map" text><v-icon>fas fa-map-marked-alt</v-icon></v-btn>
          </v-bottom-navigation>
@@ -53,17 +53,12 @@
 </template>
 
 <script>
-import { nearest_station, stations } from "./modules/geoshapes";
 
 export default {
     name: "app",
     data: () => ({
         drawer: null,
-        station_proximity_range: 10, // meters
-        near_station: null,
     }),
-    components: {
-    },
     methods: {
         do_sign_out: function () {
             this.$store.dispatch("sign_out").then(() => {
@@ -73,24 +68,6 @@ export default {
         },
         dbg: function () {
             alert("debug");
-        },
-    },
-    computed: {
-    },
-    watch: {
-        "$store.state.current_location": function (loc) {
-            if (this.near_station) {
-                const dist = loc.distanceTo(this.near_station.loc);
-                if (dist > this.station_proximity_range) {
-                    this.near_station = null;
-                }
-            }
-            else {
-                const best_station = nearest_station(stations);
-                if ((best_station !== undefined) && (best_station.d <= this.station_proximity_range)) {
-                    this.near_station = best_station;
-                }
-            }
         },
     },
     created: function() {
