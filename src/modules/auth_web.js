@@ -9,6 +9,20 @@ const web_app_config = {
     appId: "1:355671533390:web:dcfc7550ed03c6cc4ba01f"
 };
 
+function user_has_logged_in(context) {
+    const user = context.rootState.auth_plugin.auth().currentUser;
+    return user.getIdToken(true).then(idToken => {
+        context.commit("logged_in", {
+            name: user.displayName || user.email,
+            email: user.email,
+            photo_url: user.photoURL,
+            id_token: idToken,
+            provider_id: user.providerId,
+            uid: user.uid,
+        });
+    });
+}
+
 export default {
     init_auth_plugin(context) {
         console.log("Initializing web app");
@@ -33,18 +47,7 @@ export default {
                         }
                 }, reject);
             });
-        }).then(user =>
-            user.getIdToken(true).then(idToken => {
-                context.commit("logged_in", {
-                    name: user.displayName,
-                    email: user.email,
-                    photo_url: user.photoURL,
-                    id_token: idToken,
-                    provider_id: user.providerId,
-                    uid: user.uid,
-                });
-            })
-        );
+        }).then(() => user_has_logged_in(context));
     },
     sign_out(context) {
         return context.rootState.auth_plugin.auth().signOut();
@@ -55,16 +58,18 @@ export default {
             access_type: "offline",
             prompt: "select_account",
         });
-        return context.rootState.auth_plugin.auth().signInWithPopup(provider).then(userCredential => {
-            return {
-                name: userCredential.user.displayName,
-                email: userCredential.user.email,
-                photo_url: userCredential.user.photoURL,
-                id_token: userCredential.credential.idToken,
-                provider_id: userCredential.user.providerId,
-                uid: userCredential.user.uid,
-            };
-        });
+        return context.rootState.auth_plugin.auth().signInWithPopup(provider).then(() => user_has_logged_in(context));
+    },
+    sign_in_with_email_pwd(context, payload) {
+        if (payload.signup) {
+            return context.rootState.auth_plugin.auth().createUserWithEmailAndPassword(payload.email, payload.pwd)
+                .then(() =>  context.rootState.auth_plugin.auth().currentUser.updateProfile({displayName: payload.displayName}))
+                .then(() => user_has_logged_in(context));
+        }
+        else {
+            return context.rootState.auth_plugin.auth().signInWithEmailAndPassword(payload.email, payload.pwd)
+                .then(() => user_has_logged_in(context));
+        }
     },
 };
 
