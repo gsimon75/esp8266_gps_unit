@@ -1,6 +1,7 @@
-#include "wifi_creds.h"
-#include "alpha.h"
-#include "beta.h"
+#include "ssd1306.h"
+#include "qrcodegen.h"
+#include "font6x8.h"
+#include "dns_server.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -20,6 +21,7 @@
 #include <string.h>
 
 #define GPIO_BUTTON     0
+#define SSD1306_I2C I2C_NUM_0
 
 static const char *TAG = "simple wifi";
 extern const uint8_t something_dat_start[] asm("_binary_something_dat_start");
@@ -162,8 +164,6 @@ void
 app_main()
 {
     printf("Hello world!\n");
-    yadda();
-    boo();
 
     /* Print chip information */
     esp_chip_info_t chip_info;
@@ -181,6 +181,8 @@ app_main()
     ESP_ERROR_CHECK(ret);
 
     button_init();
+
+    ssd1306_init(SSD1306_I2C, 4, 5);
 
     wifi_init_sta();
 
