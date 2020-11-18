@@ -7,6 +7,7 @@
 #include <freertos/event_groups.h>
 #include <rom/ets_sys.h>
 
+#include <driver/gpio.h>
 #include <esp_system.h>
 #include <esp_spi_flash.h>
 #include <esp_wifi.h>
@@ -16,10 +17,14 @@
 #include <nvs_flash.h>
 
 #include <stdio.h>
+#include <string.h>
+
+#define GPIO_BUTTON     0
 
 static const char *TAG = "simple wifi";
 extern const uint8_t something_dat_start[] asm("_binary_something_dat_start");
 extern const uint8_t something_dat_end[] asm("_binary_something_dat_end");
+
 
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t wifi_event_group;
@@ -85,12 +90,22 @@ wifi_init_sta() {
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = MY_SSID,
-            .password = MY_PASSWORD
-        },
-    };
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+
+    nvs_handle nvs_wifi;
+    wifi_config_t wifi_config;
+    memset(&wifi_config, 0, sizeof(wifi_config_t));
+
+    size_t ssid_len = sizeof(wifi_config.sta.ssid);
+    size_t password_len = sizeof(wifi_config.sta.password);
+
+    ESP_ERROR_CHECK(nvs_open("wifi", NVS_READONLY, &nvs_wifi));
+    ESP_ERROR_CHECK(nvs_get_str(nvs_wifi, "ssid", (char*)wifi_config.sta.ssid, &ssid_len));
+    ESP_ERROR_CHECK(nvs_get_str(nvs_wifi, "password", (char*)wifi_config.sta.password, &password_len));
+    nvs_close(nvs_wifi);
+
+    ESP_LOGI(TAG, "wifi ssid (len=%d) '%s'", ssid_len, wifi_config.sta.ssid);
+    ESP_LOGI(TAG, "wifi password (len=%d) '%s'", password_len, wifi_config.sta.password);
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config) );
@@ -99,6 +114,49 @@ wifi_init_sta() {
     ESP_LOGI(TAG, "wifi_init_sta finished.");
 }
 
+// ------------------------------------------------------------------------------
+
+
+static xQueueHandle gpio_evt_queue = NULL;
+
+static void
+gpio_isr_handler(void *arg)
+{
+    uint32_t gpio_num = (uint32_t) arg;
+    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+}
+
+static void
+gpio_task_example(void *arg)
+{
+    uint32_t io_num;
+
+    while (true) {
+        if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+            ESP_LOGI(TAG, "GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
+        }
+    }
+}
+
+static void
+button_init() {
+    gpio_config_t io_conf;
+
+    io_conf.intr_type = GPIO_INTR_POSEDGE;
+    io_conf.pin_bit_mask = 1 << GPIO_BUTTON;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+
+    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
+    xTaskCreate(gpio_task_example, "gpio_task_example", 2048, NULL, 10, NULL);
+
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(GPIO_BUTTON, gpio_isr_handler, (void *) GPIO_BUTTON);
+    //gpio_isr_handler_remove(GPIO_BUTTON);
+}
+
+// ------------------------------------------------------------------------------
 
 void
 app_main()
@@ -121,6 +179,9 @@ app_main()
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    button_init();
+
     wifi_init_sta();
 
     /*for (int i = 10; i >= 0; i--) {

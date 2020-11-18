@@ -1,0 +1,4 @@
+key,type,encoding,value
+wifi,namespace,,
+ssid,data,string,agifules2
+password,data,string,you-dont-expect-me-to-write-it-here-do-you
