@@ -16,6 +16,8 @@
 
 #include <string.h>
 
+#define ustrchr(s, c)   ((unsigned char*)strchr((const char*)(s), c))
+
 static const char *TAG = "ota";
 
 extern const unsigned char ota_ca_start[] asm("_binary_ota_ca_der_start");
@@ -59,10 +61,19 @@ read_some(mbedtls_ssl_context *ssl, unsigned char *buf, size_t len) {
     }
 }
 
+typedef enum {
+    STATE_STATUSLINE,
+    STATE_HEADER,
+    STATE_BODY,
+    STATE_DONE,
+    STATE_ERROR
+} http_read_state_t;
 
+
+#define BUFSIZE 48
 void
 check_ota(void * pvParameters __attribute__((unused))) {
-    unsigned char buf[512];
+    unsigned char buf[BUFSIZE + 1];
     int ret;
 
     ESP_LOGI(TAG, "Checking OTA");
@@ -179,14 +190,101 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
     }
 
-    while (1) {
-        ssize_t ret = read_some(&ssl, buf, sizeof(buf) - 1);
+    unsigned char *start = buf;
+    http_read_state_t state = STATE_STATUSLINE;
+    size_t content_remaining = 0;
+    while ((state < STATE_DONE) && ((start - buf) < BUFSIZE)) { // exit if buffer is too short for a line
+        ssize_t ret = read_some(&ssl, start, BUFSIZE - (start - buf));
         if (ret <= 0) {
             break;
         }
+        start[ret] = '\0';
+        //ESP_LOGD(TAG, "Read %d bytes:'%s'\n", ret, buf);
 
-        buf[ret] = '\0';
-        mbedtls_printf("Read %d bytes\n%s", ret, buf);
+        if (state < STATE_BODY) {
+            start[ret] = '\0';
+            ret += start - buf;
+            start = buf;
+            while (ret > 0) {
+                unsigned char *eol = ustrchr(start, '\n');
+                if (!eol) { // unfinished line
+                    break;
+                }
+                eol[(eol[-1] == '\r') ? -1 : 0] = '\0'; // (cr)lf to nul
+
+                unsigned char* header_line = start;
+
+                ret -= (eol + 1 - start);
+                start = eol + 1;
+
+                if (!header_line[0]) { // end of header
+                    state = STATE_BODY;
+                    break;
+                }
+                // HERE: @header_line points to a header line
+                if (state == STATE_STATUSLINE) {
+                    unsigned char *sep = ustrchr(header_line, ' ');
+                    if (!sep) { // invalid response status line
+                        ESP_LOGE(TAG, "Invalid response status '%s'", header_line);
+                        state = STATE_ERROR;
+                        break;
+                    }
+                    int response_status = atoi((const char*)(sep + 1));
+                    if (response_status == 200) {
+                        state = STATE_HEADER;
+                    }
+                    else if (response_status < 400) {
+                        state = STATE_DONE;
+                    }
+                    else {
+                        ESP_LOGE(TAG, "Response error: '%d'", response_status);
+                        state = STATE_ERROR;
+                    }
+                }
+                else {
+                    unsigned char *sep = ustrchr(header_line, ':');
+                    if (!sep) { // invalid response header line
+                        ESP_LOGE(TAG, "Invalid response header '%s'", header_line);
+                        state = STATE_ERROR;
+                        break;
+                    }
+                    for (*(sep++) = '\0'; *sep && ((*sep == ' ') || (*sep == '\t')); ++sep)
+                        ;
+
+                    // HERE: header_line=key, sep=value
+                    // ESP_LOGD(TAG, "Header line; key='%s', value='%s'", header_line, sep);
+                    if (!strcasecmp("Content-Length", header_line)) {
+                        content_remaining = atoi((char*)sep);
+                        ESP_LOGI(TAG, "OTA length: %u", content_remaining);
+                    }
+                }
+            }
+
+            if (ret == 0) {
+                start = buf;
+                ret = 0;
+            }
+            else {
+                memmove(buf, start, ret);
+                start = buf + ret;
+            }
+        }
+
+        if (state == STATE_BODY) {
+            if (ret > content_remaining) {
+                ret = content_remaining;
+            }
+            start[ret] = '\0';
+
+            // HERE: data=start len=ret
+            ESP_LOGD(TAG, "Body (len=%d): '%s'", ret, start);
+
+            start = buf;
+            content_remaining -= ret;
+            if (content_remaining == 0) {
+                state = STATE_DONE;
+            }
+        }
     }
 
     mbedtls_ssl_close_notify(&ssl);
