@@ -23,11 +23,11 @@ static const char *TAG = "ota";
 extern const unsigned char ota_ca_start[] asm("_binary_ota_ca_der_start");
 extern const unsigned char ota_ca_end[] asm("_binary_ota_ca_der_end");
 
-extern const unsigned char client_key_start[] asm("_binary_client_key_der_start");
-extern const unsigned char client_key_end[] asm("_binary_client_key_der_end");
+extern const unsigned char client_pkey_start[] asm("_binary_client_key_der_start");
+extern const unsigned char client_pkey_end[] asm("_binary_client_key_der_end");
 
-extern const unsigned char client_cert_start[] asm("_binary_client_cert_der_start");
-extern const unsigned char client_cert_end[] asm("_binary_client_cert_der_end");
+extern const unsigned char client_cert_start[] asm("_binary_client_crt_der_start");
+extern const unsigned char client_cert_end[] asm("_binary_client_crt_der_end");
 
 /* FreeRTOS event group to signal when we are connected*/
 extern EventGroupHandle_t wifi_event_group;
@@ -37,7 +37,8 @@ extern EventGroupHandle_t wifi_event_group;
 #define GPS_GOT_FIX_BIT  BIT1
 
 static const char OTA_SERVER[] = "ota.wodeewa.com";
-static const char REQ_GET_OTA[] = "GET /index.html HTTP/1.1\r\nHost: ota.wodeewa.com\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n";
+//static const char REQ_GET_OTA[] = "GET /index.html HTTP/1.1\r\nHost: ota.wodeewa.com\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n";
+static const char REQ_GET_OTA[] = "GET /out/test HTTP/1.1\r\nHost: ota.wodeewa.com\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n";
 
 
 ssize_t
@@ -94,6 +95,12 @@ check_ota(void * pvParameters __attribute__((unused))) {
     mbedtls_x509_crt cacert;
     mbedtls_x509_crt_init(&cacert);
 
+    mbedtls_x509_crt client_cert;
+    mbedtls_x509_crt_init(&client_cert);
+
+    mbedtls_pk_context client_pkey;
+    mbedtls_pk_init(&client_pkey);
+
     mbedtls_ctr_drbg_context ctr_drbg;
     mbedtls_ctr_drbg_init(&ctr_drbg);
 
@@ -111,6 +118,18 @@ check_ota(void * pvParameters __attribute__((unused))) {
     ret = mbedtls_x509_crt_parse_der(&cacert, ota_ca_start, ota_ca_end - ota_ca_start);
     if (ret < 0) {
         ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
+        goto exit;
+    }
+
+    ret = mbedtls_x509_crt_parse_der(&client_cert, client_cert_start, client_cert_end - client_cert_start);
+    if (ret < 0) {
+        ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
+        goto exit;
+    }
+
+    ret = mbedtls_pk_parse_key(&client_pkey, client_pkey_start, client_pkey_end - client_pkey_start, NULL, 0);
+    if (ret < 0) {
+        ESP_LOGE(TAG, "mbedtls_pk_parse_key returned -0x%x", -ret);
         goto exit;
     }
 
@@ -136,7 +155,8 @@ check_ota(void * pvParameters __attribute__((unused))) {
      */
     mbedtls_ssl_conf_ca_chain(&conf, &cacert, NULL);
     mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
-    mbedtls_ssl_conf_cert_profile (&conf, &mbedtls_x509_crt_profile_next);
+    mbedtls_ssl_conf_cert_profile(&conf, &mbedtls_x509_crt_profile_next);
+    mbedtls_ssl_conf_own_cert(&conf, &client_cert, &client_pkey);
 
     ret = mbedtls_ssl_setup(&ssl, &conf);
     if (ret != 0) {
