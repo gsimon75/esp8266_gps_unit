@@ -11,10 +11,12 @@
 #include <esp_log.h>
 
 #include <esp_tls.h>
+#include <esp_ota_ops.h>
 
 #include <nvs_flash.h>
 
 #include <string.h>
+#include <ctype.h>
 
 #define ustrchr(s, c)   ((unsigned char*)strchr((const char*)(s), c))
 
@@ -37,9 +39,12 @@ extern EventGroupHandle_t wifi_event_group;
 #define GPS_GOT_FIX_BIT  BIT1
 
 static const char OTA_SERVER[] = "ota.wodeewa.com";
-//static const char REQ_GET_OTA[] = "GET /index.html HTTP/1.1\r\nHost: ota.wodeewa.com\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n";
-static const char REQ_GET_OTA[] = "GET /out/test HTTP/1.1\r\nHost: ota.wodeewa.com\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n";
+static const char OTA_PATH[] = "/out/test";
 
+/* NOTE: nginx has a stupid default interpretation of If-Modified-Since, don't forget to override it:
+ * http://nginx.org/en/docs/http/ngx_http_core_module.html#if_modified_since
+ * https://trac.nginx.org/nginx/ticket/93
+ */
 
 ssize_t
 read_some(mbedtls_ssl_context *ssl, unsigned char *buf, size_t len) {
@@ -71,13 +76,78 @@ typedef enum {
 } http_read_state_t;
 
 
+void
+hexdump(const unsigned char *data, ssize_t len) {
+    size_t offs = 0;
+    char linebuf[4 + 2 + 3*16 + 1 + 16 + 1];
+    while (len > 0) {
+        int i;
+        char *p = linebuf;
+        p += sprintf(p, "%04x:", offs);
+        for (i = 0; (i < len) && (i < 0x10); ++i) {
+            p += sprintf(p, " %02x", data[i]);
+        }
+        for (; i < 0x10; ++i) {
+            *(p++) = ' ';
+            *(p++) = ' ';
+            *(p++) = ' ';
+        }
+        *(p++) = ' ';
+        for (i = 0; (i < len) && (i < 0x10); ++i) {
+            *(p++) = isprint(data[i]) ? data[i] : '.'; 
+        }
+        ESP_LOGD(TAG, "%s", linebuf);
+        offs += 0x10;
+        len -= 0x10;
+    }
+}
+
+
+
+#define LOG_PARTITION(name, p) do { \
+    ESP_LOGI(TAG, name " partition: address=0x%08x, size=0x%08x, type=%d, subtype=%d, label='%p'", (p)->address, (p)->size, (p)->type, (p)->subtype, (p)->label); \
+    hexdump((p)->label, 14); \
+    } while (0)
+
+
+
 #define BUFSIZE 48
 void
 check_ota(void * pvParameters __attribute__((unused))) {
     unsigned char buf[BUFSIZE + 1];
     int ret;
+    char req_get_ota[192];
 
     ESP_LOGI(TAG, "Checking OTA");
+
+    // get current partition, its label is expected to be "fw_<hex timestamp>"
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    LOG_PARTITION("Running", running);
+
+    // extract time
+    time_t ts;
+    if (strncmp(running->label, "fw_", 3)) {
+        ESP_LOGW(TAG, "Current partition name is not recognized");
+        ts = 0;
+    }
+    else {
+        char *end;
+        ts = strtol(running->label + 3, &end, 16);
+        if (*end) {
+            ESP_LOGW(TAG, "Current partition name/timestamp is not valid");
+            ts = 0;
+        }
+    }
+    char sts[32];
+    strftime(sts, sizeof(sts), "%a, %d %b %Y %H:%M:%S GMT", gmtime(&ts));
+    ESP_LOGD(TAG, "Current part timestamp: '%s'", sts);
+
+    // format the http request
+    snprintf(req_get_ota, sizeof(req_get_ota), "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/1.0 esp8266\r\nIf-Modified-Since: %s\r\n\r\n", OTA_PATH, OTA_SERVER, sts);
+    ESP_LOGD(TAG, "Request: '%s'", req_get_ota);
+
+    const esp_partition_t *update = esp_ota_get_next_update_partition(NULL);
+    LOG_PARTITION("Update", update);
 
     /******************************************************************************
      * HTTPS conn start
@@ -196,8 +266,8 @@ check_ota(void * pvParameters __attribute__((unused))) {
         goto exit;
     }
 
-    const char *wr_data = REQ_GET_OTA;
-    ssize_t wr_remaining = sizeof(REQ_GET_OTA);
+    const char *wr_data = req_get_ota;
+    ssize_t wr_remaining = sizeof(req_get_ota);
     while (wr_remaining > 0) {
         ret = mbedtls_ssl_write(&ssl, (const unsigned char*)wr_data, wr_remaining);
         if (ret >= 0) {
@@ -252,6 +322,10 @@ check_ota(void * pvParameters __attribute__((unused))) {
                     int response_status = atoi((const char*)(sep + 1));
                     if (response_status == 200) {
                         state = STATE_HEADER;
+                    }
+                    else if (response_status == 304) {
+                        ESP_LOGI(TAG, "No newer OTA is available");
+                        state = STATE_DONE;
                     }
                     else if (response_status < 400) {
                         state = STATE_DONE;
