@@ -39,7 +39,7 @@ extern EventGroupHandle_t wifi_event_group;
 #define GPS_GOT_FIX_BIT  BIT1
 
 static const char OTA_SERVER[] = "ota.wodeewa.com";
-static const char OTA_PATH[] = "/out/test";
+static const char OTA_PATH[] = "/out/firmware.bin";
 
 /* NOTE: nginx has a stupid default interpretation of If-Modified-Since, don't forget to override it:
  * http://nginx.org/en/docs/http/ngx_http_core_module.html#if_modified_since
@@ -111,7 +111,7 @@ hexdump(const unsigned char *data, ssize_t len) {
 
 
 
-#define BUFSIZE 48
+#define BUFSIZE 512
 void
 check_ota(void * pvParameters __attribute__((unused))) {
     unsigned char buf[BUFSIZE + 1];
@@ -368,13 +368,13 @@ check_ota(void * pvParameters __attribute__((unused))) {
             if (ret > content_remaining) {
                 ret = content_remaining;
             }
+            content_remaining -= ret;
             start[ret] = '\0';
 
             // HERE: data=start len=ret
-            ESP_LOGD(TAG, "Body (len=%d): '%s'", ret, start);
+            ESP_LOGD(TAG, "Body chunk; len=%d, remaining=%d", ret, content_remaining);
 
             start = buf;
-            content_remaining -= ret;
             if (content_remaining == 0) {
                 state = STATE_DONE;
             }
