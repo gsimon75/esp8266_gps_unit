@@ -39,41 +39,8 @@ extern EventGroupHandle_t wifi_event_group;
 #define GPS_GOT_FIX_BIT  BIT1
 
 static const char OTA_SERVER[] = "ota.wodeewa.com";
-static const char OTA_PATH[] = "/out/firmware.bin";
-
-/* NOTE: nginx has a stupid default interpretation of If-Modified-Since, don't forget to override it:
- * http://nginx.org/en/docs/http/ngx_http_core_module.html#if_modified_since
- * https://trac.nginx.org/nginx/ticket/93
- */
-
-ssize_t
-read_some(mbedtls_ssl_context *ssl, unsigned char *buf, size_t len) {
-    while (1) {
-        ssize_t ret = mbedtls_ssl_read(ssl, buf, len);
-
-        if ((ret == MBEDTLS_ERR_SSL_WANT_READ) || (ret == MBEDTLS_ERR_SSL_WANT_WRITE)) {
-            continue;
-        }
-
-        if ((ret == 0) || (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)) {
-            return 0; // EOF
-        }
-
-        if (ret < 0) {
-            ESP_LOGE(TAG, "mbedtls_ssl_read returned %d", ret);
-            return ret;
-        }
-        return ret;
-    }
-}
-
-typedef enum {
-    STATE_STATUSLINE,
-    STATE_HEADER,
-    STATE_BODY,
-    STATE_DONE,
-    STATE_ERROR
-} http_read_state_t;
+static const char OTA_FIRMWARE_PATH[] = "/out/firmware.desc";
+#define BUFSIZE 128
 
 
 void
@@ -96,13 +63,13 @@ hexdump(const unsigned char *data, ssize_t len) {
         for (i = 0; (i < len) && (i < 0x10); ++i) {
             *(p++) = isprint(data[i]) ? data[i] : '.'; 
         }
+        *(p++) = '\0';
         ESP_LOGD(TAG, "%s", linebuf);
         offs += 0x10;
+        data += 0x10;
         len -= 0x10;
     }
 }
-
-
 
 #define LOG_PARTITION(name, p) do { \
     ESP_LOGI(TAG, name " partition: address=0x%08x, size=0x%08x, type=%d, subtype=%d, label='%p'", (p)->address, (p)->size, (p)->type, (p)->subtype, (p)->label); \
@@ -111,111 +78,90 @@ hexdump(const unsigned char *data, ssize_t len) {
 
 
 
-#define BUFSIZE 512
-void
-check_ota(void * pvParameters __attribute__((unused))) {
-    unsigned char buf[BUFSIZE + 1];
-    int ret;
-    char req_get_ota[192];
-
-    ESP_LOGI(TAG, "Checking OTA");
-
-    // get current partition, its label is expected to be "fw_<hex timestamp>"
-    const esp_partition_t *running = esp_ota_get_running_partition();
-    LOG_PARTITION("Running", running);
-
-    // extract time
-    time_t ts;
-    if (strncmp(running->label, "fw_", 3)) {
-        ESP_LOGW(TAG, "Current partition name is not recognized");
-        ts = 0;
-    }
-    else {
-        char *end;
-        ts = strtol(running->label + 3, &end, 16);
-        if (*end) {
-            ESP_LOGW(TAG, "Current partition name/timestamp is not valid");
-            ts = 0;
-        }
-    }
-    char sts[32];
-    strftime(sts, sizeof(sts), "%a, %d %b %Y %H:%M:%S GMT", gmtime(&ts));
-    ESP_LOGD(TAG, "Current part timestamp: '%s'", sts);
-
-    // format the http request
-    snprintf(req_get_ota, sizeof(req_get_ota), "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/1.0 esp8266\r\nIf-Modified-Since: %s\r\n\r\n", OTA_PATH, OTA_SERVER, sts);
-    ESP_LOGD(TAG, "Request: '%s'", req_get_ota);
-
-    const esp_partition_t *update = esp_ota_get_next_update_partition(NULL);
-    LOG_PARTITION("Update", update);
-
-    /******************************************************************************
-     * HTTPS conn start
-     */
-
+typedef struct {
     mbedtls_net_context ssl_ctx;
-    mbedtls_net_init(&ssl_ctx);
-
     mbedtls_ssl_context ssl;
-    mbedtls_ssl_init(&ssl);
-
     mbedtls_ssl_config conf;
-    mbedtls_ssl_config_init(&conf);
-
     mbedtls_x509_crt cacert;
-    mbedtls_x509_crt_init(&cacert);
-
     mbedtls_x509_crt client_cert;
-    mbedtls_x509_crt_init(&client_cert);
-
     mbedtls_pk_context client_pkey;
-    mbedtls_pk_init(&client_pkey);
-
     mbedtls_ctr_drbg_context ctr_drbg;
-    mbedtls_ctr_drbg_init(&ctr_drbg);
-
     mbedtls_entropy_context entropy;
-    mbedtls_entropy_init(&entropy);
 
+    unsigned char buf[BUFSIZE + 1];
+    unsigned char *rdpos, *wrpos;
+    size_t content_remaining;
+    bool error;
+} https_conn_context_t;
+
+
+void
+https_conn_destroy(https_conn_context_t *ctx) {
+    mbedtls_ssl_close_notify(&ctx->ssl);
+    mbedtls_net_free(&ctx->ssl_ctx);
+    mbedtls_x509_crt_free(&ctx->cacert);
+    mbedtls_ssl_free(&ctx->ssl);
+    mbedtls_ssl_config_free(&ctx->conf);
+    mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
+    mbedtls_entropy_free(&ctx->entropy);
+}
+
+
+void
+https_conn_init(https_conn_context_t *ctx) {
+    ctx->rdpos = ctx->wrpos = ctx->buf;
+    ctx->content_remaining = 0;
+
+    mbedtls_net_init(&ctx->ssl_ctx);
+    mbedtls_ssl_init(&ctx->ssl);
+    mbedtls_ssl_config_init(&ctx->conf);
+    mbedtls_x509_crt_init(&ctx->cacert);
+    mbedtls_x509_crt_init(&ctx->client_cert);
+    mbedtls_pk_init(&ctx->client_pkey);
+    mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
+    mbedtls_entropy_init(&ctx->entropy);
+
+    int ret;
     time_t now;
+    
     time(&now);
-    ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, (const unsigned char *)&now, sizeof(time_t));
+    ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func, &ctx->entropy, (const unsigned char *)&now, sizeof(time_t));
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned %d", ret);
         goto exit;
     }
 
-    ret = mbedtls_x509_crt_parse_der(&cacert, ota_ca_start, ota_ca_end - ota_ca_start);
+    ret = mbedtls_x509_crt_parse_der(&ctx->cacert, ota_ca_start, ota_ca_end - ota_ca_start);
     if (ret < 0) {
         ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
         goto exit;
     }
 
-    ret = mbedtls_x509_crt_parse_der(&client_cert, client_cert_start, client_cert_end - client_cert_start);
+    ret = mbedtls_x509_crt_parse_der(&ctx->client_cert, client_cert_start, client_cert_end - client_cert_start);
     if (ret < 0) {
         ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
         goto exit;
     }
 
-    ret = mbedtls_pk_parse_key(&client_pkey, client_pkey_start, client_pkey_end - client_pkey_start, NULL, 0);
+    ret = mbedtls_pk_parse_key(&ctx->client_pkey, client_pkey_start, client_pkey_end - client_pkey_start, NULL, 0);
     if (ret < 0) {
         ESP_LOGE(TAG, "mbedtls_pk_parse_key returned -0x%x", -ret);
         goto exit;
     }
 
-    ret = mbedtls_net_connect(&ssl_ctx, OTA_SERVER, "443", MBEDTLS_NET_PROTO_TCP);
+    ret = mbedtls_net_connect(&ctx->ssl_ctx, OTA_SERVER, "443", MBEDTLS_NET_PROTO_TCP);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_net_connect returned %d", ret);
         goto exit;
     }
 
-    ret = mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+    ret = mbedtls_ssl_config_defaults(&ctx->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_config_defaults returned %d", ret);
         goto exit;
     }
 
-    mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
+    mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
     /* A few notes on this MBEDTLS_SSL_VERIFY_OPTIONAL:
      * 1. We don't have enough RAM to load a full-fledge CA bundle
      * 2. mbedtls doesn't support loading-verifying-freeing CA certs on-demand
@@ -223,27 +169,27 @@ check_ota(void * pvParameters __attribute__((unused))) {
      * 4. We don't have a precise time, so cert validity would fail with MBEDTLS_X509_BADCERT_FUTURE
      * Therefore we set it to OPTIONAL do disable the automatic check-or-fail logic, and call mbedtls_ssl_get_verify_result() later manually
      */
-    mbedtls_ssl_conf_ca_chain(&conf, &cacert, NULL);
-    mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
-    mbedtls_ssl_conf_cert_profile(&conf, &mbedtls_x509_crt_profile_next);
-    mbedtls_ssl_conf_own_cert(&conf, &client_cert, &client_pkey);
+    mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->cacert, NULL);
+    mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+    mbedtls_ssl_conf_cert_profile(&ctx->conf, &mbedtls_x509_crt_profile_next);
+    mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->client_cert, &ctx->client_pkey);
 
-    ret = mbedtls_ssl_setup(&ssl, &conf);
+    ret = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_setup returned %d", ret);
         goto exit;
     }
 
-    ret = mbedtls_ssl_set_hostname(&ssl, OTA_SERVER);
+    ret = mbedtls_ssl_set_hostname(&ctx->ssl, OTA_SERVER);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_set_hostname returned %d", ret);
         goto exit;
     }
 
-    mbedtls_ssl_set_bio(&ssl, &ssl_ctx, mbedtls_net_send, mbedtls_net_recv, NULL);
+    mbedtls_ssl_set_bio(&ctx->ssl, &ctx->ssl_ctx, mbedtls_net_send, mbedtls_net_recv, NULL);
 
     while (1) {
-        ret = mbedtls_ssl_handshake(&ssl);
+        ret = mbedtls_ssl_handshake(&ctx->ssl);
         if (ret == 0) {
             break;
         }
@@ -253,7 +199,7 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
     }
 
-    ret = mbedtls_ssl_get_verify_result(&ssl);
+    ret = mbedtls_ssl_get_verify_result(&ctx->ssl);
     if (!(xEventGroupGetBits(wifi_event_group) & GPS_GOT_FIX_BIT)) {
         // Until we get a GPS fix, we don't know the time, so we can't check cert expiry.
         // Either we reject all expired certs or we accept all of them.
@@ -266,130 +212,214 @@ check_ota(void * pvParameters __attribute__((unused))) {
         goto exit;
     }
 
-    const char *wr_data = req_get_ota;
-    ssize_t wr_remaining = sizeof(req_get_ota);
-    while (wr_remaining > 0) {
-        ret = mbedtls_ssl_write(&ssl, (const unsigned char*)wr_data, wr_remaining);
+    ctx->error = false;
+    return true;
+
+exit:
+    ctx->error = true;
+    https_conn_destroy(ctx);
+    return false;
+}
+
+
+bool
+send_buf(https_conn_context_t *ctx) {
+    while (ctx->rdpos < ctx->wrpos) {
+        ssize_t ret = mbedtls_ssl_write(&ctx->ssl, ctx->rdpos, ctx->wrpos - ctx->rdpos);
         if (ret >= 0) {
-            wr_data += ret;
-            wr_remaining -= ret;
+            ctx->rdpos += ret;
         }
         else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
             ESP_LOGE(TAG, "mbedtls_ssl_write returned %d", ret);
-            goto exit;
+            ctx->error = true;
+            return false;
         }
     }
+    ctx->error = false;
+    ctx->rdpos = ctx->wrpos = ctx->buf;
+    return true;
+}
 
-    unsigned char *start = buf;
-    http_read_state_t state = STATE_STATUSLINE;
-    size_t content_remaining = 0;
-    while ((state < STATE_DONE) && ((start - buf) < BUFSIZE)) { // exit if buffer is too short for a line
-        ssize_t ret = read_some(&ssl, start, BUFSIZE - (start - buf));
-        if (ret <= 0) {
-            break;
-        }
-        start[ret] = '\0';
-        //ESP_LOGD(TAG, "Read %d bytes:'%s'\n", ret, buf);
 
-        if (state < STATE_BODY) {
-            start[ret] = '\0';
-            ret += start - buf;
-            start = buf;
-            while (ret > 0) {
-                unsigned char *eol = ustrchr(start, '\n');
-                if (!eol) { // unfinished line
-                    break;
-                }
-                eol[(eol[-1] == '\r') ? -1 : 0] = '\0'; // (cr)lf to nul
+ssize_t
+read_some(https_conn_context_t *ctx) {
+    while (1) {
+        ssize_t ret = mbedtls_ssl_read(&ctx->ssl, ctx->wrpos, ctx->buf + BUFSIZE - ctx->wrpos);
 
-                unsigned char* header_line = start;
-
-                ret -= (eol + 1 - start);
-                start = eol + 1;
-
-                if (!header_line[0]) { // end of header
-                    state = STATE_BODY;
-                    break;
-                }
-                // HERE: @header_line points to a header line
-                if (state == STATE_STATUSLINE) {
-                    unsigned char *sep = ustrchr(header_line, ' ');
-                    if (!sep) { // invalid response status line
-                        ESP_LOGE(TAG, "Invalid response status '%s'", header_line);
-                        state = STATE_ERROR;
-                        break;
-                    }
-                    int response_status = atoi((const char*)(sep + 1));
-                    if (response_status == 200) {
-                        state = STATE_HEADER;
-                    }
-                    else if (response_status == 304) {
-                        ESP_LOGI(TAG, "No newer OTA is available");
-                        state = STATE_DONE;
-                    }
-                    else if (response_status < 400) {
-                        state = STATE_DONE;
-                    }
-                    else {
-                        ESP_LOGE(TAG, "Response error: '%d'", response_status);
-                        state = STATE_ERROR;
-                    }
-                }
-                else {
-                    unsigned char *sep = ustrchr(header_line, ':');
-                    if (!sep) { // invalid response header line
-                        ESP_LOGE(TAG, "Invalid response header '%s'", header_line);
-                        state = STATE_ERROR;
-                        break;
-                    }
-                    for (*(sep++) = '\0'; *sep && ((*sep == ' ') || (*sep == '\t')); ++sep)
-                        ;
-
-                    // HERE: header_line=key, sep=value
-                    // ESP_LOGD(TAG, "Header line; key='%s', value='%s'", header_line, sep);
-                    if (!strcasecmp("Content-Length", header_line)) {
-                        content_remaining = atoi((char*)sep);
-                        ESP_LOGI(TAG, "OTA length: %u", content_remaining);
-                    }
-                }
-            }
-
-            if (ret == 0) {
-                start = buf;
-                ret = 0;
-            }
-            else {
-                memmove(buf, start, ret);
-                start = buf + ret;
-            }
+        if ((ret == MBEDTLS_ERR_SSL_WANT_READ) || (ret == MBEDTLS_ERR_SSL_WANT_WRITE)) {
+            continue;
         }
 
-        if (state == STATE_BODY) {
-            if (ret > content_remaining) {
-                ret = content_remaining;
-            }
-            content_remaining -= ret;
-            start[ret] = '\0';
-
-            // HERE: data=start len=ret
-            ESP_LOGD(TAG, "Body chunk; len=%d, remaining=%d", ret, content_remaining);
-
-            start = buf;
-            if (content_remaining == 0) {
-                state = STATE_DONE;
-            }
+        if ((ret == 0) || (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)) {
+            return 0; // EOF
         }
+
+        if (ret < 0) {
+            ESP_LOGE(TAG, "mbedtls_ssl_read returned %d", ret);
+            return ret;
+        }
+        return ret;
+    }
+}
+
+
+bool
+send_GET_request(https_conn_context_t *ctx, const char *file_path) {
+    ctx->rdpos = ctx->buf;
+    ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n", file_path, OTA_SERVER);
+    ctx->content_remaining = 0;
+    ESP_LOGD(TAG, "Request: '%s'", ctx->buf);
+    return send_buf(ctx);
+
+}
+
+
+unsigned char *
+http_readline(https_conn_context_t *ctx) {
+    unsigned char *eol;
+
+    unsigned char *
+    terminate_line(void) { // helper: terminate a line, move rdpos over it, and return its start
+        eol[((ctx->buf < eol) && (eol[-1] == '\r')) ? -1 : 0] = '\0'; // replace (cr)lf with nul
+        unsigned char *result = ctx->rdpos;
+        ctx->rdpos = eol + 1;
+        return result;
     }
 
-    mbedtls_ssl_close_notify(&ssl);
+    if (ctx->rdpos != ctx->wrpos) { // there is unread data in the buffer
+        eol = (unsigned char*)memchr(ctx->rdpos, '\n', ctx->wrpos - ctx->rdpos);
+        if (eol) { // it contains a terminated line
+            return terminate_line();
+        }
+        // no eol in the buffer, we'll need to read some more data, so let's make space for that
+        if (ctx->rdpos != ctx->buf) {
+            memmove(ctx->buf, ctx->rdpos, ctx->wrpos - ctx->rdpos);
+            ctx->wrpos -= (ctx->rdpos - ctx->buf);
+            ctx->rdpos = ctx->buf;
+        }
+    }
+    else { // buffer is empty, so make it empty at the start position
+        ctx->rdpos = ctx->wrpos = ctx->buf;
+    }
+
+    while (ctx->wrpos < (ctx->buf + BUFSIZE)) {
+        ssize_t ret = read_some(ctx);
+        if (ret <= 0) { // either error or eof before eol
+            ctx->error = true;
+            return NULL;
+        }
+        eol = (unsigned char*)memchr(ctx->wrpos, '\n', ret); // search only in the data we read now
+        ctx->wrpos += ret; // move wrpos over this chunk
+        if (eol) {
+            return terminate_line();
+        }
+    }
+    ctx->error = true;
+    return NULL; // haven't returned yet -> buffer was too short for a line
+}
+
+
+int
+read_http_statusline(https_conn_context_t *ctx) {
+    unsigned char *line = http_readline(ctx);
+    if (!line) { // read error, too long line, etc.
+        return -1;
+    }
+    unsigned char *sep = ustrchr(line, ' ');
+    if (!sep) { // invalid response status line
+        ctx->error = true;
+        return -1;
+    }
+    return atoi((const char*)(sep + 1));
+}
+
+
+bool
+read_http_header(https_conn_context_t *ctx, unsigned char **name, unsigned char **value) {
+    unsigned char *line = http_readline(ctx);
+    if (!line || !*line) { // read error, too long line, etc., or empty line -> end of headers
+        return false;
+    }
+    unsigned char *sep = ustrchr(line, ':');
+    if (!sep) { // malformed header line
+        ctx->error = true;
+        return false;
+    }
+    for (*(sep++) = '\0'; *sep && ((*sep == ' ') || (*sep == '\t')); ++sep) {
+    }
+    *name = line;
+    *value = sep;
+    if (!strcasecmp("Content-Length", line)) {
+        ctx->content_remaining = atoi((char*)sep);
+    }
+    return true;
+}
+
+
+bool
+read_http_body(https_conn_context_t *ctx, unsigned char **data, size_t *datalen) {
+    if (ctx->rdpos < ctx->wrpos) {
+        *data = ctx->rdpos;
+        *datalen = ctx->wrpos - ctx->rdpos;
+        ctx->content_remaining -= *datalen;
+        ctx->rdpos = ctx->wrpos = ctx->buf;
+        return true;
+    }
+
+    ssize_t ret = read_some(ctx);
+    if (ret <= 0) { // eof or error
+        ctx->error |= (ret < 0);
+        return false;
+    }
+ 
+    *data = ctx->wrpos;
+    *datalen = ret;
+    ctx->content_remaining -= ret;
+    return true;
+}
+
+
+void
+check_ota(void * pvParameters __attribute__((unused))) {
+    ESP_LOGI(TAG, "Checking OTA");
+
+    // get current partition, its label is expected to be "fw_<hex timestamp>"
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    LOG_PARTITION("Running", running);
+
+    const esp_partition_t *update = esp_ota_get_next_update_partition(NULL);
+    LOG_PARTITION("Update", update);
+
+    https_conn_context_t ctx;
+
+    ESP_LOGI(TAG, "Connecting to OTA server");
+    https_conn_init(&ctx);
+
+    if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH)) {
+        goto exit;
+    }
+
+    int http_resp_status = read_http_statusline(&ctx);
+    ESP_LOGD(TAG, "Response status: '%d'", http_resp_status);
+    if (http_resp_status != 200) {
+        goto exit;
+    }
+
+    unsigned char *name, *value;
+    while (read_http_header(&ctx, &name, &value)) {
+        ESP_LOGD(TAG, "Header line; name='%s', value='%s'", name, value);
+    }
+    ESP_LOGI(TAG, "OTA length: %u", ctx.content_remaining);
+
+    unsigned char *data;
+    size_t datalen;
+    while ((ctx.content_remaining > 0) && read_http_body(&ctx, &data, &datalen)) {
+        ESP_LOGD(TAG, "Body chunk; len=%d, remaining=%d", datalen, ctx.content_remaining);
+        hexdump(data, datalen);
+    }
 
 exit:
-    mbedtls_net_free(&ssl_ctx);
-    mbedtls_x509_crt_free(&cacert);
-    mbedtls_ssl_free(&ssl);
-    mbedtls_ssl_config_free(&conf);
-    mbedtls_ctr_drbg_free(&ctr_drbg);
-    mbedtls_entropy_free(&entropy);
+    https_conn_destroy(&ctx);
 
     ESP_LOGI(TAG, "OTA check done");
     vTaskDelete(NULL);
