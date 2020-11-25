@@ -13,10 +13,16 @@ NVS_SIZE := 0x3000
 NVS_BIN := build/nvs.bin
 
 $(NVS_BIN):		$(NVS_FILENAME)
-				$(IDF_PATH)/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py --input $^ --output $@ --size $(NVS_SIZE)
+	$(IDF_PATH)/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py --input $^ --output $@ --size $(NVS_SIZE)
 
 ESPTOOL_ALL_FLASH_ARGS += $(NVS_OFFSET) $(NVS_BIN)
 all_binaries: $(NVS_BIN)
 
 include $(IDF_PATH)/make/project.mk
 
+build/firmware.uploaded:	build/hello-world.bin
+	scp -C $< pi@pi:/var/www/html/ota.wodeewa.com/out/firmware.bin
+	touch $@
+
+app:		build/firmware.uploaded
+app-flash:	build/firmware.uploaded
