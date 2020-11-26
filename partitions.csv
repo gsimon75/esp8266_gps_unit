@@ -1,5 +1,7 @@
 # Name,         Type, SubType, Offset,   Size, Flags
-fw_5fbc1113,    app,  ota_0,   0x005000,  0xfb000
+ota_zero,       app,  ota_0,   0x005000,  0xfb000
 otadata,        data, ota,     0x100000,  0x2000
 nvs,            data, nvs,     0x102000,  0x3000
-ota_unused,     app,  ota_1,   0x105000,  0xfb000
+ota_one,        app,  ota_1,   0x105000,  0xfb000
+ota_two,        app,  ota_2,   0x205000,  0xfb000
+ota_three,      app,  ota_3,   0x305000,  0xfb000

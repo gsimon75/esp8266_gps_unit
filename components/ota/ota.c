@@ -39,7 +39,8 @@ extern EventGroupHandle_t wifi_event_group;
 #define GPS_GOT_FIX_BIT  BIT1
 
 static const char OTA_SERVER[] = "ota.wodeewa.com";
-static const char OTA_FIRMWARE_PATH[] = "/out/firmware.desc";
+static const char OTA_FIRMWARE_PATH[] = "/out/";
+static const char OTA_FIRMWARE_DESC[] = "hello-world.desc";
 #define BUFSIZE 512
 
 
@@ -77,15 +78,15 @@ hexdump(const unsigned char *data, ssize_t len) {
     } while (0)
 
 
-uint32_t
-fletcher32(const uint8_t *data, size_t count)
+uint16_t
+fletcher16(const uint8_t *data, size_t count)
 {
-   uint32_t sum1 = 0, sum2 = 0;
+   uint16_t sum1 = 0, sum2 = 0;
    for (size_t index = 0; index < count; ++index) {
-      sum1 = (sum1 + data[index] + (((uint32_t)data[index + 1]) << 8)) % 65535;
-      sum2 = (sum2 + sum1) % 65535;
+      sum1 = (sum1 + data[index]) % 255;
+      sum2 = (sum2 + sum1) % 255;
    }
-   return (sum2 << 16) | sum1;
+   return (sum2 << 8) | sum1;
 }
 
 
@@ -276,9 +277,9 @@ read_some(https_conn_context_t *ctx) {
 
 
 bool
-send_GET_request(https_conn_context_t *ctx, const char *file_path) {
+send_GET_request(https_conn_context_t *ctx, const char *path, const char *file_name) {
     ctx->rdpos = ctx->buf;
-    ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n", file_path, OTA_SERVER);
+    ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n", path, file_name, OTA_SERVER);
     ctx->content_length = 0;
     ctx->content_remaining = 0xffffffff; // no known read limit on header length
     ESP_LOGD(TAG, "Request: '%s'", ctx->buf);
@@ -429,15 +430,16 @@ check_ota(void * pvParameters __attribute__((unused))) {
     unsigned char *data;
     size_t datalen;
 
-    char fw_path[32];
-    fw_path[0] = '\0';
-    uint32_t fw_checksum = 0;
+    char fw_name[32];
+    fw_name[0] = '\0';
+    uint16_t fw_checksum = 0;
+    size_t fw_size = 0;
     time_t fw_timestamp = 0;
 
     // get the descriptor file first
 
     ESP_LOGI(TAG, "Getting OTA descriptor");
-    if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH)) {
+    if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH, OTA_FIRMWARE_DESC)) {
         goto exit;
     }
 
@@ -454,23 +456,27 @@ check_ota(void * pvParameters __attribute__((unused))) {
 
     while (read_http_header(&ctx, &name, &value)) {
         ESP_LOGD(TAG, "Body line; name='%s', value='%s'", name, value);
-        if (!strcmp(name, "path")) {
-            strncpy(fw_path, value, sizeof(fw_path));
+        if (!strcmp(name, "name")) {
+            strncpy(fw_name, value, sizeof(fw_name));
         }
         else if (!strcmp(name, "mtime")) {
             fw_timestamp = strtol((const char*)value, NULL, 0);
         }
-        else if (!strcmp(name, "fletcher32")) {
+        else if (!strcmp(name, "size")) {
+            fw_size = strtol((const char*)value, NULL, 0);
+        }
+        else if (!strcmp(name, "fletcher16")) {
             fw_checksum = strtol((const char*)value, NULL, 0);
         }
     }
     ESP_LOGI(TAG, "OTA descriptor end");
 
-    // get the firmware binary
 
-    if (fw_path[0]) {
-        ESP_LOGI(TAG, "Getting OTA binary '%s'", fw_path);
-        if (!send_GET_request(&ctx, fw_path)) {
+    if (fw_name[0]) { // get the firmware binary
+        uint16_t sum1, sum2; // Fletcher16: don't want to deal with odd-bytes-long chunks
+
+        ESP_LOGI(TAG, "Getting OTA binary '%s'", fw_name);
+        if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH, fw_name)) {
             goto exit;
         }
 
@@ -484,12 +490,31 @@ check_ota(void * pvParameters __attribute__((unused))) {
         while (read_http_header(&ctx, &name, &value)) {
             ESP_LOGD(TAG, "Header line; name='%s', value='%s'", name, value);
         }
-        ESP_LOGI(TAG, "OTA binary length: %u", ctx.content_length);
+        if (ctx.content_length != fw_size) {
+            ESP_LOGE(TAG, "OTA binary size mismatch; is=%u, shouldbe=%u", ctx.content_length, fw_size);
+            goto exit;
+        }
 
+        sum1 = sum2 = 0;
         while (read_http_body(&ctx, &data, &datalen)) {
             ESP_LOGD(TAG, "Body chunk; len=%d, remaining=%u", datalen, ctx.content_remaining);
             //hexdump(data, datalen);
+
+            // calculate a Fletcher16 on download: if it doesn't match, then the file itself is invalid on
+            // the server, so it makes no sense to retry downloading/flashing
+            for (size_t i = 0; i < datalen; ++i) {
+                sum1 = (sum1 + data[i]) % 255;
+                sum2 = (sum2 + sum1) % 255;
+            }
         }
+        sum1 |= sum2 << 8;
+
+        if (sum1 != fw_checksum) {
+            ESP_LOGE(TAG, "OTA binary checksum mismatch; is=0x%04x, shouldbe=0x%04x", sum1, fw_checksum);
+            goto exit;
+        }
+
+
         ESP_LOGI(TAG, "OTA binary end");
     }
 
