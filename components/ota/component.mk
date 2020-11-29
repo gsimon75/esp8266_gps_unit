@@ -8,4 +8,4 @@
 #
 
 COMPONENT_ADD_INCLUDEDIRS := .
-COMPONENT_EMBED_FILES :=  $(wildcard ${PROJECT_PATH}/static_data/*)
+COMPONENT_EMBED_FILES :=  $(sort $(wildcard ${PROJECT_PATH}/static_data/*))
