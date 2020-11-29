@@ -3,6 +3,13 @@
 # project subdirectory.
 #
 
+## For reproducible builds
+SOURCE_DATE_EPOCH = $(shell git log -n 1 --format="%ct")
+ARFLAGS += D
+CFLAGS += -DSOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
+MAKEFLAGS += -j1
+.NOTPARALLEL:
+
 PROJECT_NAME := hello-world
 
 CFLAGS += -Wno-pointer-sign

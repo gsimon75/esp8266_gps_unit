@@ -1,0 +1,210 @@
+diff --git a/components/bootloader_support/src/bootloader_init.c b/components/bootloader_support/src/bootloader_init.c
+index 3035b10b..059c2d25 100644
+--- a/components/bootloader_support/src/bootloader_init.c
++++ b/components/bootloader_support/src/bootloader_init.c
+@@ -14,6 +14,11 @@
+ 
+ #include "sdkconfig.h"
+ 
++#ifndef XTSTR
++#define _XTSTR(x)	# x
++#define XTSTR(x)	_XTSTR(x)
++#endif
++
+ #ifdef CONFIG_IDF_TARGET_ESP32
+ 
+ #include <string.h>
+@@ -144,7 +149,11 @@ static esp_err_t bootloader_main()
+     wdt_reset_check();
+     ESP_LOGI(TAG, "ESP-IDF %s 2nd stage bootloader", IDF_VER);
+ 
+-    ESP_LOGI(TAG, "compile time " __TIME__ );
++#ifdef SOURCE_DATE_EPOCH
++    ESP_LOGI(TAG, "compile time " XTSTR(SOURCE_DATE_EPOCH) );
++#else
++    ESP_LOGI(TAG, "compile time __TIME__" );
++#endif
+     ets_set_appcpu_boot_addr(0);
+ 
+     /* disable watch dog here */
+@@ -623,7 +632,11 @@ static esp_err_t bootloader_main()
+ 
+     ESP_LOGI(TAG, "ESP-IDF %s 2nd stage bootloader", IDF_VER);
+ 
+-    ESP_LOGI(TAG, "compile time " __TIME__ );
++#ifdef SOURCE_DATE_EPOCH
++    ESP_LOGI(TAG, "compile time " XTSTR(SOURCE_DATE_EPOCH) );
++#else
++    ESP_LOGI(TAG, "compile time __TIME__" );
++#endif
+ 
+ #if defined(CONFIG_ESPTOOLPY_FLASHMODE_QIO) || defined(CONFIG_ESPTOOLPY_FLASHMODE_QOUT)
+     fhdr.spi_mode = CONFIG_SPI_FLASH_MODE;
+diff --git a/make/component_wrapper.mk b/make/component_wrapper.mk
+index 278452ef..ca40c385 100644
+--- a/make/component_wrapper.mk
++++ b/make/component_wrapper.mk
+@@ -98,7 +98,7 @@ COMPONENT_PATH := $(1)
+ include $(1)/Makefile.componentbuild
+ endef
+ $(foreach componentpath,$(COMPONENT_PATHS), \
+-	$(if $(wildcard $(componentpath)/Makefile.componentbuild), \
++	$(if $(sort $(wildcard $(componentpath)/Makefile.componentbuild)), \
+ 		$(eval $(call includeCompBuildMakefile,$(componentpath)))))
+ 
+ #Restore COMPONENT_PATH to what it was
+@@ -119,10 +119,10 @@ ifndef COMPONENT_CONFIG_ONLY  # Skip steps 3-5 if COMPONENT_CONFIG_ONLY is set
+ # By default we take all .c, .cpp, .cc & .S files in COMPONENT_SRCDIRS.
+ ifndef COMPONENT_OBJS
+ # Find all source files in all COMPONENT_SRCDIRS
+-COMPONENT_OBJS := $(foreach compsrcdir,$(COMPONENT_SRCDIRS),$(patsubst %.c,%.o,$(wildcard $(COMPONENT_PATH)/$(compsrcdir)/*.c)))
+-COMPONENT_OBJS += $(foreach compsrcdir,$(COMPONENT_SRCDIRS),$(patsubst %.cpp,%.o,$(wildcard $(COMPONENT_PATH)/$(compsrcdir)/*.cpp)))
+-COMPONENT_OBJS += $(foreach compsrcdir,$(COMPONENT_SRCDIRS),$(patsubst %.cc,%.o,$(wildcard $(COMPONENT_PATH)/$(compsrcdir)/*.cc)))
+-COMPONENT_OBJS += $(foreach compsrcdir,$(COMPONENT_SRCDIRS),$(patsubst %.S,%.o,$(wildcard $(COMPONENT_PATH)/$(compsrcdir)/*.S)))
++COMPONENT_OBJS := $(foreach compsrcdir,$(COMPONENT_SRCDIRS),$(patsubst %.c,%.o,$(sort $(wildcard $(COMPONENT_PATH)/$(compsrcdir)/*.c))))
++COMPONENT_OBJS += $(foreach compsrcdir,$(COMPONENT_SRCDIRS),$(patsubst %.cpp,%.o,$(sort $(wildcard $(COMPONENT_PATH)/$(compsrcdir)/*.cpp))))
++COMPONENT_OBJS += $(foreach compsrcdir,$(COMPONENT_SRCDIRS),$(patsubst %.cc,%.o,$(sort $(wildcard $(COMPONENT_PATH)/$(compsrcdir)/*.cc))))
++COMPONENT_OBJS += $(foreach compsrcdir,$(COMPONENT_SRCDIRS),$(patsubst %.S,%.o,$(sort $(wildcard $(COMPONENT_PATH)/$(compsrcdir)/*.S))))
+ # Make relative by removing COMPONENT_PATH from all found object paths
+ COMPONENT_OBJS := $(patsubst $(COMPONENT_PATH)/%,%,$(COMPONENT_OBJS))
+ else
+diff --git a/make/project.mk b/make/project.mk
+index c06835b2..06e9f023 100644
+--- a/make/project.mk
++++ b/make/project.mk
+@@ -85,7 +85,7 @@ ifeq ("$(OS)","Windows_NT")
+ # where /xyz is a directory inside the MSYS root - so we don't use it.
+ SANITISED_IDF_PATH:=$(realpath $(IDF_PATH))
+ else
+-SANITISED_IDF_PATH:=$(realpath $(wildcard $(IDF_PATH)))
++SANITISED_IDF_PATH:=$(realpath $(sort $(wildcard $(IDF_PATH))))
+ endif
+ 
+ export IDF_PATH := $(SANITISED_IDF_PATH)
+@@ -157,7 +157,7 @@ endif
+ 
+ # List of component directories, i.e. directories which contain a component.mk file 
+ SINGLE_COMPONENT_DIRS := $(abspath $(dir $(dir $(foreach cd,$(COMPONENT_DIRS),\
+-                             $(wildcard $(cd)/component.mk)))))
++                             $(sort $(wildcard $(cd)/component.mk))))))
+ 
+ # List of components directories, i.e. directories which may contain components 
+ MULTI_COMPONENT_DIRS := $(filter-out $(SINGLE_COMPONENT_DIRS),$(COMPONENT_DIRS))
+@@ -173,7 +173,7 @@ ifndef COMPONENTS
+ # directories they're in, so /bla/components/mycomponent/component.mk -> mycomponent.
+ # We need to do this for MULTI_COMPONENT_DIRS only, since SINGLE_COMPONENT_DIRS
+ # are already known to contain component.mk.
+-COMPONENTS := $(dir $(foreach cd,$(MULTI_COMPONENT_DIRS),$(wildcard $(cd)/*/component.mk))) \
++COMPONENTS := $(dir $(foreach cd,$(MULTI_COMPONENT_DIRS),$(sort $(wildcard $(cd)/*/component.mk)))) \
+               $(SINGLE_COMPONENT_DIRS)
+ COMPONENTS := $(sort $(foreach comp,$(COMPONENTS),$(lastword $(subst /, ,$(comp)))))
+ endif
+@@ -200,7 +200,7 @@ export COMPONENTS
+ COMPONENT_PATHS := $(foreach comp,$(COMPONENTS),\
+                         $(firstword $(foreach cd,$(COMPONENT_DIRS),\
+                             $(if $(findstring $(cd),$(MULTI_COMPONENT_DIRS)),\
+-                                 $(abspath $(dir $(wildcard $(cd)/$(comp)/component.mk))),)\
++                                 $(abspath $(dir $(sort $(wildcard $(cd)/$(comp)/component.mk)))),)\
+                             $(if $(findstring $(cd),$(SINGLE_COMPONENT_DIRS)),\
+                                  $(if $(filter $(comp),$(notdir $(cd))),$(cd),),)\
+                    )))
+@@ -218,7 +218,7 @@ else
+ TEST_COMPONENTS_LIST := $(TEST_COMPONENTS)
+ endif
+ 
+-TEST_COMPONENT_PATHS := $(foreach comp,$(TEST_COMPONENTS_LIST),$(firstword $(foreach dir,$(COMPONENT_DIRS),$(wildcard $(dir)/$(comp)/test))))
++TEST_COMPONENT_PATHS := $(foreach comp,$(TEST_COMPONENTS_LIST),$(firstword $(foreach dir,$(COMPONENT_DIRS),$(sort $(wildcard $(dir)/$(comp)/test)))))
+ TEST_COMPONENT_NAMES := $(foreach comp,$(TEST_COMPONENT_PATHS),$(lastword $(subst /, ,$(dir $(comp))))_test)
+ 
+ # Set default values that were not previously defined
+@@ -328,7 +328,7 @@ endif
+ 
+ 
+ # If we have `version.txt` then prefer that for extracting IDF version
+-ifeq ("$(wildcard ${IDF_PATH}/version.txt)","")
++ifeq ("$(sort $(wildcard ${IDF_PATH}/version.txt))","")
+ IDF_VER_T := $(shell cd ${IDF_PATH} && git describe --always --tags --dirty)
+ else
+ IDF_VER_T := $(shell cat ${IDF_PATH}/version.txt)
+@@ -384,11 +384,11 @@ endif #CONFIG_COMPILER_WARN_WRITE_STRINGS
+ 
+ # Flags which control code generation and dependency generation, both for C and C++
+ COMMON_FLAGS = \
+-	-Wno-frame-address \
+ 	-ffunction-sections -fdata-sections \
+ 	-fstrict-volatile-bitfields \
+ 	-mlongcalls \
+ 	-nostdlib
++	#-Wno-frame-address \
+ 
+ ifndef IS_BOOTLOADER_BUILD
+ # stack protection (only one option can be selected in menuconfig)
+@@ -496,7 +496,7 @@ COMPONENT_PATH := $(1)
+ include $(1)/Makefile.projbuild
+ endef
+ $(foreach componentpath,$(COMPONENT_PATHS), \
+-	$(if $(wildcard $(componentpath)/Makefile.projbuild), \
++	$(if $(sort $(wildcard $(componentpath)/Makefile.projbuild)), \
+ 		$(eval $(call includeProjBuildMakefile,$(componentpath)))))
+ 
+ # ELF depends on the library archive files for COMPONENT_LIBRARIES
+@@ -603,7 +603,7 @@ clean: app-clean bootloader-clean config-clean ldgen-clean
+ # This only works for components inside IDF_PATH
+ check-submodules:
+ # Check if .gitmodules exists, otherwise skip submodule check, assuming flattened structure
+-ifneq ("$(wildcard ${IDF_PATH}/.gitmodules)","")
++ifneq ("$(sort $(wildcard ${IDF_PATH}/.gitmodules))","")
+ 
+ # Dump the git status for the whole working copy once, then grep it for each submodule. This saves a lot of time on Windows.
+ GIT_STATUS := $(shell cd ${IDF_PATH} && git status --porcelain --ignore-submodules=dirty)
+diff --git a/make/project_config.mk b/make/project_config.mk
+index b5a47673..c334f8e2 100644
+--- a/make/project_config.mk
++++ b/make/project_config.mk
+@@ -1,8 +1,8 @@
+ # Makefile support for the menuconfig system
+ 
+ #Find all Kconfig files for all components
+-COMPONENT_KCONFIGS := $(foreach component,$(COMPONENT_PATHS),$(wildcard $(component)/Kconfig))
+-COMPONENT_KCONFIGS_PROJBUILD := $(foreach component,$(COMPONENT_PATHS),$(wildcard $(component)/Kconfig.projbuild))
++COMPONENT_KCONFIGS := $(foreach component,$(COMPONENT_PATHS),$(sort $(wildcard $(component)/Kconfig)))
++COMPONENT_KCONFIGS_PROJBUILD := $(foreach component,$(COMPONENT_PATHS),$(sort $(wildcard $(component)/Kconfig.projbuild)))
+ 
+ ifeq ($(OS),Windows_NT)
+ # kconfiglib requires Windows-style paths for kconfig files
+@@ -25,11 +25,11 @@ SDKCONFIG_DEFAULTS ?= $(PROJECT_PATH)/sdkconfig.defaults
+ $(KCONFIG_TOOL_DIR)/mconf-idf: $(KCONFIG_TOOL_DIR)/conf-idf
+ 
+ # reset MAKEFLAGS as the menuconfig makefile uses implicit compile rules
+-$(KCONFIG_TOOL_DIR)/mconf-idf $(KCONFIG_TOOL_DIR)/conf-idf: $(wildcard $(KCONFIG_TOOL_DIR)/*.c)
++$(KCONFIG_TOOL_DIR)/mconf-idf $(KCONFIG_TOOL_DIR)/conf-idf: $(sort $(wildcard $(KCONFIG_TOOL_DIR)/*.c))
+ 	MAKEFLAGS="" CC=$(HOSTCC) LD=$(HOSTLD) \
+ 	$(MAKE) -C $(KCONFIG_TOOL_DIR)
+ 
+-ifeq ("$(wildcard $(SDKCONFIG))","")
++ifeq ("$(sort $(wildcard $(SDKCONFIG)))","")
+ # if no configuration file is present we need a rule for it
+ ifeq ("$(filter $(NON_INTERACTIVE_TARGET), $(MAKECMDGOALS))","")
+ # if special non-interactive item is not a named target (eg. 'defconfig', 'clean')
+@@ -100,7 +100,7 @@ endif
+ # defconfig creates a default config, based on SDKCONFIG_DEFAULTS if present
+ defconfig: | check_python_dependencies
+ 	$(summary) DEFCONFIG
+-ifneq ("$(wildcard $(SDKCONFIG_DEFAULTS))","")
++ifneq ("$(sort $(wildcard $(SDKCONFIG_DEFAULTS)))","")
+ 	cat $(SDKCONFIG_DEFAULTS) >> $(SDKCONFIG)  # append defaults to sdkconfig, will override existing values
+ endif
+ 	$(call RunConfGen)
+diff --git a/tools/ldgen/generation.py b/tools/ldgen/generation.py
+index 686defc3..5a6d974a 100644
+--- a/tools/ldgen/generation.py
++++ b/tools/ldgen/generation.py
+@@ -336,7 +336,7 @@ class GenerationModel:
+         for mapping in self.mappings.values():
+             archive = mapping.archive
+             mapping_rules = all_mapping_rules[archive]
+-            for (obj, symbol, scheme_name) in mapping.entries:
++            for (obj, symbol, scheme_name) in sorted(mapping.entries):
+                 try:
+                     if not (obj == Mapping.MAPPING_ALL_OBJECTS and symbol is None and
+                             scheme_name == GenerationModel.DEFAULT_SCHEME):
