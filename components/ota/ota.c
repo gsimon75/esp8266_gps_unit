@@ -40,7 +40,12 @@ extern EventGroupHandle_t wifi_event_group;
 
 static const char OTA_SERVER[] = "ota.wodeewa.com";
 static const char OTA_FIRMWARE_PATH[] = "/out/";
-static const char OTA_FIRMWARE_DESC[] = "hello-world.desc";
+#ifdef MULTI_IMAGES
+/static const char OTA_FIRMWARE_DESC[] = "hello-world.ota_%d.desc"; // arg: ota partition index
+#else
+static const char OTA_FIRMWARE_DESC[] = "hello-world.desc"; // arg: ota partition index
+#endif // MULTI_IMAGES
+
 #define BUFSIZE 512
 
 
@@ -72,10 +77,7 @@ hexdump(const unsigned char *data, ssize_t len) {
     }
 }
 
-#define LOG_PARTITION(name, p) do { \
-    ESP_LOGI(TAG, name " partition: address=0x%08x, size=0x%08x, type=%d, subtype=%d, label='%p'", (p)->address, (p)->size, (p)->type, (p)->subtype, (p)->label); \
-    hexdump((p)->label, 14); \
-    } while (0)
+#define LOG_PARTITION(name, p) ESP_LOGI(TAG, name " partition: address=0x%08x, size=0x%08x, type=%d, subtype=%d, label='%s'", (p)->address, (p)->size, (p)->type, (p)->subtype, (p)->label);
 
 
 uint16_t
@@ -119,12 +121,13 @@ https_conn_destroy(https_conn_context_t *ctx) {
 }
 
 
-void
+bool
 https_conn_init(https_conn_context_t *ctx) {
     ctx->rdpos = ctx->wrpos = ctx->buf;
     ctx->content_length = 0;
     ctx->content_remaining = 0;
 
+    //ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
     mbedtls_net_init(&ctx->ssl_ctx);
     mbedtls_ssl_init(&ctx->ssl);
     mbedtls_ssl_config_init(&ctx->conf);
@@ -141,37 +144,37 @@ https_conn_init(https_conn_context_t *ctx) {
     ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func, &ctx->entropy, (const unsigned char *)&now, sizeof(time_t));
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned %d", ret);
-        goto exit;
+        goto close_conn;
     }
 
     ret = mbedtls_x509_crt_parse_der(&ctx->cacert, ota_ca_start, ota_ca_end - ota_ca_start);
     if (ret < 0) {
         ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
-        goto exit;
+        goto close_conn;
     }
 
     ret = mbedtls_x509_crt_parse_der(&ctx->client_cert, client_cert_start, client_cert_end - client_cert_start);
     if (ret < 0) {
         ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
-        goto exit;
+        goto close_conn;
     }
 
     ret = mbedtls_pk_parse_key(&ctx->client_pkey, client_pkey_start, client_pkey_end - client_pkey_start, NULL, 0);
     if (ret < 0) {
         ESP_LOGE(TAG, "mbedtls_pk_parse_key returned -0x%x", -ret);
-        goto exit;
+        goto close_conn;
     }
 
     ret = mbedtls_net_connect(&ctx->ssl_ctx, OTA_SERVER, "443", MBEDTLS_NET_PROTO_TCP);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_net_connect returned %d", ret);
-        goto exit;
+        goto close_conn;
     }
 
     ret = mbedtls_ssl_config_defaults(&ctx->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_config_defaults returned %d", ret);
-        goto exit;
+        goto close_conn;
     }
 
     mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
@@ -190,13 +193,13 @@ https_conn_init(https_conn_context_t *ctx) {
     ret = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_setup returned %d", ret);
-        goto exit;
+        goto close_conn;
     }
 
     ret = mbedtls_ssl_set_hostname(&ctx->ssl, OTA_SERVER);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_set_hostname returned %d", ret);
-        goto exit;
+        goto close_conn;
     }
 
     mbedtls_ssl_set_bio(&ctx->ssl, &ctx->ssl_ctx, mbedtls_net_send, mbedtls_net_recv, NULL);
@@ -208,7 +211,7 @@ https_conn_init(https_conn_context_t *ctx) {
         }
         if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
             ESP_LOGE(TAG, "mbedtls_ssl_handshake returned -0x%x", -ret);
-            goto exit;
+            goto close_conn;
         }
     }
 
@@ -222,15 +225,14 @@ https_conn_init(https_conn_context_t *ctx) {
     }
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_get_verify_result returned 0x%x", ret);
-        goto exit;
+        goto close_conn;
     }
 
     ctx->error = false;
     return true;
 
-exit:
+close_conn:
     ctx->error = true;
-    https_conn_destroy(ctx);
     return false;
 }
 
@@ -275,11 +277,13 @@ read_some(https_conn_context_t *ctx) {
     }
 }
 
+#define _STR(x) #x
+#define STR(x) _STR(x)
 
 bool
 send_GET_request(https_conn_context_t *ctx, const char *path, const char *file_name) {
     ctx->rdpos = ctx->buf;
-    ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/1.0 esp8266\r\n\r\n", path, file_name, OTA_SERVER);
+    ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n\r\n", path, file_name, OTA_SERVER);
     ctx->content_length = 0;
     ctx->content_remaining = 0xffffffff; // no known read limit on header length
     ESP_LOGD(TAG, "Request: '%s'", ctx->buf);
@@ -409,19 +413,37 @@ read_http_body(https_conn_context_t *ctx, unsigned char **data, size_t *datalen)
 
 void
 check_ota(void * pvParameters __attribute__((unused))) {
+    int ret;
+    nvs_handle nvs_firmware;
+
     ESP_LOGI(TAG, "Checking OTA");
 
-    // get current partition, its label is expected to be "fw_<hex timestamp>"
     const esp_partition_t *running = esp_ota_get_running_partition();
     LOG_PARTITION("Running", running);
 
     const esp_partition_t *update = esp_ota_get_next_update_partition(NULL);
     LOG_PARTITION("Update", update);
 
+    uint32_t current_mtime;
+    ret = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot open nvs: 0x%x", ret);
+    }
+    else {
+        ret = nvs_get_u32(nvs_firmware, running->label, &current_mtime);
+        nvs_close(nvs_firmware);
+    }
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Cannot find mtime for current partiton, assuming 0");
+        current_mtime = 0;
+    }
+
     https_conn_context_t ctx;
 
     ESP_LOGI(TAG, "Connecting to OTA server");
-    https_conn_init(&ctx);
+    if (!https_conn_init(&ctx)) {
+        goto close_conn;
+    }
 
     // https content-related data
 
@@ -434,33 +456,38 @@ check_ota(void * pvParameters __attribute__((unused))) {
     fw_name[0] = '\0';
     uint16_t fw_checksum = 0;
     size_t fw_size = 0;
-    time_t fw_timestamp = 0;
+    time_t fw_mtime = 1;
 
     // get the descriptor file first
 
     ESP_LOGI(TAG, "Getting OTA descriptor");
-    if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH, OTA_FIRMWARE_DESC)) {
-        goto exit;
+#ifdef MULTI_IMAGES
+    snprintf(fw_name, sizeof(fw_name), OTA_FIRMWARE_DESC, update->subtype - ESP_PARTITION_SUBTYPE_APP_OTA_MIN);
+#else
+    snprintf(fw_name, sizeof(fw_name), OTA_FIRMWARE_DESC);
+#endif // MULTI_IMAGES
+    if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH, fw_name)) {
+        goto close_conn;
     }
 
     status = read_http_statusline(&ctx);
-    ESP_LOGD(TAG, "Response status: '%d'", status);
     if (status != 200) {
-        goto exit;
+        ESP_LOGD(TAG, "Response error %d", status);
+        goto close_conn;
     }
 
     while (read_http_header(&ctx, &name, &value)) {
-        ESP_LOGD(TAG, "Header line; name='%s', value='%s'", name, value);
+        //ESP_LOGD(TAG, "Header line; name='%s', value='%s'", name, value);
     }
-    ESP_LOGI(TAG, "OTA descriptor length: %u", ctx.content_length);
+    //ESP_LOGD(TAG, "OTA descriptor length: %u", ctx.content_length);
 
     while (read_http_header(&ctx, &name, &value)) {
-        ESP_LOGD(TAG, "Body line; name='%s', value='%s'", name, value);
+        //ESP_LOGD(TAG, "Body line; name='%s', value='%s'", name, value);
         if (!strcmp(name, "name")) {
             strncpy(fw_name, value, sizeof(fw_name));
         }
         else if (!strcmp(name, "mtime")) {
-            fw_timestamp = strtol((const char*)value, NULL, 0);
+            fw_mtime = strtol((const char*)value, NULL, 0);
         }
         else if (!strcmp(name, "size")) {
             fw_size = strtol((const char*)value, NULL, 0);
@@ -471,19 +498,21 @@ check_ota(void * pvParameters __attribute__((unused))) {
     }
     ESP_LOGI(TAG, "OTA descriptor end");
 
-
-    if (fw_name[0]) { // get the firmware binary
+    if (fw_mtime <= current_mtime) {
+        ESP_LOGI(TAG, "Current firmware is up-to-date");
+    }
+    else if (fw_name[0]) { // get the firmware binary
         uint16_t sum1, sum2; // Fletcher16: don't want to deal with odd-bytes-long chunks
 
         ESP_LOGI(TAG, "Getting OTA binary '%s'", fw_name);
         if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH, fw_name)) {
-            goto exit;
+            goto close_conn;
         }
 
         int status = read_http_statusline(&ctx);
         ESP_LOGD(TAG, "Response status: '%d'", status);
         if (status != 200) {
-            goto exit;
+            goto close_conn;
         }
 
         unsigned char *name, *value;
@@ -492,13 +521,25 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
         if (ctx.content_length != fw_size) {
             ESP_LOGE(TAG, "OTA binary size mismatch; is=%u, shouldbe=%u", ctx.content_length, fw_size);
-            goto exit;
+            goto close_conn;
+        }
+
+        esp_ota_handle_t update_handle = 0 ;
+        ret = esp_ota_begin(update, fw_size, &update_handle);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_begin failed, error=%d", ret);
+            goto close_conn;
         }
 
         sum1 = sum2 = 0;
         while (read_http_body(&ctx, &data, &datalen)) {
-            ESP_LOGD(TAG, "Body chunk; len=%d, remaining=%u", datalen, ctx.content_remaining);
+            //ESP_LOGD(TAG, "Body chunk; len=%d, remaining=%u", datalen, ctx.content_remaining);
             //hexdump(data, datalen);
+            ret = esp_ota_write(update_handle, data, datalen);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "esp_ota_write failed, error=0x%x", ret);
+                goto close_conn;
+            }
 
             // calculate a Fletcher16 on download: if it doesn't match, then the file itself is invalid on
             // the server, so it makes no sense to retry downloading/flashing
@@ -509,16 +550,70 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
         sum1 |= sum2 << 8;
 
+        ESP_LOGD(TAG, "Finishing flashing");
+        ret = esp_ota_end(update_handle);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_end failed, error=0x%x", ret);
+            goto close_conn;
+        }
+        ESP_LOGD(TAG, "Finished flashing");
         if (sum1 != fw_checksum) {
-            ESP_LOGE(TAG, "OTA binary checksum mismatch; is=0x%04x, shouldbe=0x%04x", sum1, fw_checksum);
-            goto exit;
+            ESP_LOGE(TAG, "OTA downloaded checksum mismatch; is=0x%04x, shouldbe=0x%04x", sum1, fw_checksum);
+            goto close_conn;
         }
 
+        ESP_LOGD(TAG, "Calculating flashed checksum");
+        sum1 = sum2 = 0;
+        ssize_t current_page = -1;
+        for (ssize_t i = 0; i < fw_size; ++i) {
+            ssize_t page = i / BUFSIZE;
+            if (page != current_page) {
+                ret = spi_flash_read(update->address + (page * BUFSIZE), ctx.buf, BUFSIZE);
+                if (ret != ESP_OK) {
+                    ESP_LOGE(TAG, "flash read failed, error=0x%x", ret);
+                    goto close_conn;
+                }
+                current_page = page;
+            }
+            sum1 = (sum1 + ctx.buf[i % BUFSIZE]) % 255;
+            sum2 = (sum2 + sum1) % 255;
+        }
+        sum1 |= sum2 << 8;
 
-        ESP_LOGI(TAG, "OTA binary end");
+        if (sum1 != fw_checksum) {
+            ESP_LOGE(TAG, "OTA flashed checksum mismatch; is=0x%04x, shouldbe=0x%04x", sum1, fw_checksum);
+            goto close_conn;
+        }
+
+        ESP_LOGD(TAG, "Setting boot partition");
+        ret = esp_ota_set_boot_partition(update);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_set_boot_partition failed, error=0x%x", ret);
+            goto close_conn;
+        }
+
+        ESP_LOGD(TAG, "Updating firmware metadata");
+        ret = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Cannot open nvs: %d", ret);
+        }
+        else {
+#ifdef MULTI_IMAGES
+            ret = nvs_set_u32(nvs_firmware, update->label, fw_mtime);
+#else
+            ret = nvs_set_u32(nvs_firmware, running->label, fw_mtime);
+#endif // MULTI_IMAGES
+            if (ret != ESP_OK) {
+                ESP_LOGW(TAG, "Cannot set mtime for update partiton");
+            }
+            nvs_close(nvs_firmware);
+        }
+
+        ESP_LOGI(TAG, "OTA binary end, restarting");
+        esp_restart();
     }
 
-exit:
+close_conn:
     https_conn_destroy(&ctx);
 
     ESP_LOGI(TAG, "OTA check done");

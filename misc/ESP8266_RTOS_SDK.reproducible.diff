@@ -1,5 +1,5 @@
 diff --git a/components/bootloader_support/src/bootloader_init.c b/components/bootloader_support/src/bootloader_init.c
-index 3035b10b..059c2d25 100644
+index 3035b10b..be1d6e55 100644
 --- a/components/bootloader_support/src/bootloader_init.c
 +++ b/components/bootloader_support/src/bootloader_init.c
 @@ -14,6 +14,11 @@
@@ -18,11 +18,10 @@ index 3035b10b..059c2d25 100644
      wdt_reset_check();
      ESP_LOGI(TAG, "ESP-IDF %s 2nd stage bootloader", IDF_VER);
  
--    ESP_LOGI(TAG, "compile time " __TIME__ );
 +#ifdef SOURCE_DATE_EPOCH
 +    ESP_LOGI(TAG, "compile time " XTSTR(SOURCE_DATE_EPOCH) );
 +#else
-+    ESP_LOGI(TAG, "compile time __TIME__" );
+     ESP_LOGI(TAG, "compile time " __TIME__ );
 +#endif
      ets_set_appcpu_boot_addr(0);
  
@@ -31,11 +30,10 @@ index 3035b10b..059c2d25 100644
  
      ESP_LOGI(TAG, "ESP-IDF %s 2nd stage bootloader", IDF_VER);
  
--    ESP_LOGI(TAG, "compile time " __TIME__ );
 +#ifdef SOURCE_DATE_EPOCH
 +    ESP_LOGI(TAG, "compile time " XTSTR(SOURCE_DATE_EPOCH) );
 +#else
-+    ESP_LOGI(TAG, "compile time __TIME__" );
+     ESP_LOGI(TAG, "compile time " __TIME__ );
 +#endif
  
  #if defined(CONFIG_ESPTOOLPY_FLASHMODE_QIO) || defined(CONFIG_ESPTOOLPY_FLASHMODE_QOUT)
