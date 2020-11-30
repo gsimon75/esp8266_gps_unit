@@ -166,12 +166,11 @@ void
 app_main()
 {
     ESP_LOGI(TAG, "start");
-    ESP_LOGI(TAG, "app_main addr=%p, phys=0x%08x", app_main, spi_flash_cache2phys(app_main));
 
     /* Print chip information */
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
-    printf("This is ESP8266 chip with %d CPU cores, WiFi, silicon revision %d, %dMB %s flash\n",
+    ESP_LOGI(TAG, "This is ESP8266 chip with %d CPU cores, WiFi, silicon revision %d, %dMB %s flash\n",
             chip_info.cores, chip_info.revision, spi_flash_get_chip_size() / (1024 * 1024),
             (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
@@ -198,10 +197,10 @@ app_main()
     ESP_LOGI(TAG, "OTA check done, no news"); */
 
     /*for (int i = 10; i >= 0; i--) {
-        printf("Restarting in %d seconds...\n", i);
+        ESP_LOGD(TAG, "Restarting in %d seconds...\n", i);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
-    printf("Restarting now.\n");
+    ESP_LOGI(TAG, "Restarting now.\n");
     fflush(stdout);
     esp_restart(); */
 }

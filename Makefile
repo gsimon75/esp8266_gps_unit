@@ -6,7 +6,8 @@
 ##############################################################################
 # For reproducible builds
 #
-SOURCE_DATE_EPOCH = $(shell git log -n 1 --format="%ct")
+SOURCE_DATE_EPOCH = $(shell (git status -uno --porcelain | grep -q .) && date +%s || git log -n 1 --format="%ct")
+#SOURCE_DATE_EPOCH = $(shell git log -n 1 --format="%ct")
 ARFLAGS += D
 CFLAGS += -DSOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
 MAKEFLAGS += -j1
