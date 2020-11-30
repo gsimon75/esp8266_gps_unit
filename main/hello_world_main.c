@@ -52,7 +52,7 @@ event_handler(void *ctx, system_event_t *event) {
             ESP_LOGI(TAG, "got ip:%s",
                     ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip));
             xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
-            xTaskCreate(check_ota, "ota", 6144, NULL, 5, NULL);
+            xTaskCreate(check_ota, "ota", 8192, NULL, 5, NULL);
             break;
         }
 
@@ -166,6 +166,7 @@ void
 app_main()
 {
     ESP_LOGI(TAG, "start");
+    ESP_LOGI(TAG, "app_main addr=%p, phys=0x%08x", app_main, spi_flash_cache2phys(app_main));
 
     /* Print chip information */
     esp_chip_info_t chip_info;
