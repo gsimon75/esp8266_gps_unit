@@ -36,7 +36,8 @@ extern EventGroupHandle_t wifi_event_group;
 
 /* The event group allows multiple bits for each event, but we only care about one event - are we connected to the AP with an IP? */
 #define WIFI_CONNECTED_BIT  BIT0
-#define GPS_GOT_FIX_BIT  BIT1
+#define GPS_GOT_FIX_BIT     BIT1
+#define OTA_CHECK_DONE_BIT  BIT2
 
 static const char OTA_SERVER[] = "ota.wodeewa.com";
 static const char OTA_FIRMWARE_PATH[] = "/out/";
@@ -138,10 +139,9 @@ https_conn_init(https_conn_context_t *ctx) {
     mbedtls_entropy_init(&ctx->entropy);
 
     int ret;
-    time_t now;
+    time_t last_time, now;
     
-    time(&now);
-    ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func, &ctx->entropy, (const unsigned char *)&now, sizeof(time_t));
+    ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func, &ctx->entropy, NULL, 0);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned %d", ret);
         goto close_conn;
@@ -204,7 +204,13 @@ https_conn_init(https_conn_context_t *ctx) {
 
     mbedtls_ssl_set_bio(&ctx->ssl, &ctx->ssl_ctx, mbedtls_net_send, mbedtls_net_recv, NULL);
 
+    time(&last_time);
     while (1) {
+        time(&now);
+        if ((now - last_time) > 1) {
+            ESP_LOGD(TAG, "Handshake in progress");
+            last_time = now;
+        }
         ret = mbedtls_ssl_handshake(&ctx->ssl);
         if (ret == 0) {
             break;
@@ -286,7 +292,7 @@ send_GET_request(https_conn_context_t *ctx, const char *path, const char *file_n
     ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n\r\n", path, file_name, OTA_SERVER);
     ctx->content_length = 0;
     ctx->content_remaining = 0xffffffff; // no known read limit on header length
-    ESP_LOGD(TAG, "Request: '%s'", ctx->buf);
+    //ESP_LOGD(TAG, "Request: '%s'", ctx->buf);
     return send_buf(ctx);
 
 }
@@ -413,6 +419,7 @@ read_http_body(https_conn_context_t *ctx, unsigned char **data, size_t *datalen)
 
 void
 check_ota(void * pvParameters __attribute__((unused))) {
+    time_t last_time, now;
     int ret;
     nvs_handle nvs_firmware;
 
@@ -472,7 +479,7 @@ check_ota(void * pvParameters __attribute__((unused))) {
 
     status = read_http_statusline(&ctx);
     if (status != 200) {
-        ESP_LOGD(TAG, "Response error %d", status);
+        ESP_LOGE(TAG, "Response error %d", status);
         goto close_conn;
     }
 
@@ -510,14 +517,14 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
 
         int status = read_http_statusline(&ctx);
-        ESP_LOGD(TAG, "Response status: '%d'", status);
         if (status != 200) {
+            ESP_LOGE(TAG, "Response error %d", status);
             goto close_conn;
         }
 
         unsigned char *name, *value;
         while (read_http_header(&ctx, &name, &value)) {
-            ESP_LOGD(TAG, "Header line; name='%s', value='%s'", name, value);
+            //ESP_LOGD(TAG, "Header line; name='%s', value='%s'", name, value);
         }
         if (ctx.content_length != fw_size) {
             ESP_LOGE(TAG, "OTA binary size mismatch; is=%u, shouldbe=%u", ctx.content_length, fw_size);
@@ -532,8 +539,13 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
 
         sum1 = sum2 = 0;
+        time(&last_time);
         while (read_http_body(&ctx, &data, &datalen)) {
-            //ESP_LOGD(TAG, "Body chunk; len=%d, remaining=%u", datalen, ctx.content_remaining);
+            time(&now);
+            if ((now - last_time) > 1) {
+                ESP_LOGD(TAG, "Body chunk; len=%d, remaining=%u", datalen, ctx.content_remaining);
+                last_time = now;
+            }
             //hexdump(data, datalen);
             ret = esp_ota_write(update_handle, data, datalen);
             if (ret != ESP_OK) {
@@ -617,6 +629,7 @@ close_conn:
     https_conn_destroy(&ctx);
 
     ESP_LOGI(TAG, "OTA check done");
+    xEventGroupSetBits(wifi_event_group, OTA_CHECK_DONE_BIT);
     vTaskDelete(NULL);
 }
 

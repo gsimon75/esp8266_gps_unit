@@ -1,5 +1,6 @@
 #include "ssd1306.h"
 #include <stdio.h>
+#include <math.h>
 
 #define TEST_PATTERNS 1
 
@@ -105,7 +106,7 @@ ssd1306_init(i2c_port_t port, int sda_io, int scl_io) {
     static uint8_t init_cmd[] = {
         0x78, 0x00,
         SSD1306_DISPLAY_OFF,
-        SSD1306_LAST_ROW, 0x1f,
+        SSD1306_LAST_ROW, 0x3f,
         SSD1306_CHARGEPUMP, 0x14,
         SSD1306_ADDRESSING_MODE, 0,
         SSD1306_COM_PINS, 0x02,
@@ -155,20 +156,28 @@ ssd1306_init(i2c_port_t port, int sda_io, int scl_io) {
         return status;
     }
     ssd1306_set_range(port, 0x00, 0x7f, 0, 3);
-    ssd1306_memset(port, 0, 128 * 32 / 8);
+    ssd1306_memset(port, 0, 128 * 64 / 8);
 
 #ifdef TEST_PATTERNS
-    // Binary pattern to page 0 and 1 (== rows 0..15)
-    ssd1306_set_range(port, 0x00, 0x7f, 0, 1);
-    for (uint16_t i = 0; i < 0x100; ++i) {
+    // Binary pattern to page 0 (== rows 0..7)
+    ssd1306_set_range(port, 0x00, 0x7f, 0, 0);
+    for (uint16_t i = 0; i < 0x80; ++i) {
         ssd1306_send_data_byte(port, i);
     }
 
-    // Binary pattern to the bottom-right 16x16 pixels
-    // columns 0x70..0x7f, rows 0x10..0x1f == pages 2..3
-    ssd1306_set_range(port, 0x60, 0x6f, 2, 3);
-    for (uint8_t i = 0; i < 0x20; ++i) {
-        ssd1306_send_data_byte(port, i);
+    // Sine pattern to page 1..7 (== rows 8..63)
+    ssd1306_set_range(port, 0x00, 0x7f, 1, 7);
+    for (uint16_t page = 0; page < 7; ++page) {
+        for (uint16_t i = 0; i < 0x80; ++i) {
+            int y = (int)(24 + (23 + sin(i * 3.1415926 / 64)));
+            y -= (page << 3);
+            if ((0 <= y) && (y < 8)) {
+                ssd1306_send_data_byte(port, 1 << y);
+            }
+            else {
+                ssd1306_send_data_byte(port, 0);
+            }
+        }
     }
 #endif // TEST_PATTERNS
 

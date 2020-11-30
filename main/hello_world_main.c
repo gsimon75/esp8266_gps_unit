@@ -35,7 +35,8 @@ EventGroupHandle_t wifi_event_group;
 
 /* The event group allows multiple bits for each event, but we only care about one event - are we connected to the AP with an IP? */
 #define WIFI_CONNECTED_BIT  BIT0
-#define GPS_GOT_FIX_BIT  BIT1
+#define GPS_GOT_FIX_BIT     BIT1
+#define OTA_CHECK_DONE_BIT  BIT2
 
 static esp_err_t
 event_handler(void *ctx, system_event_t *event) {
@@ -52,7 +53,7 @@ event_handler(void *ctx, system_event_t *event) {
             ESP_LOGI(TAG, "got ip:%s",
                     ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip));
             xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
-            xTaskCreate(check_ota, "ota", 8192, NULL, 5, NULL);
+            xTaskCreate(check_ota, "ota", 12 * 1024, NULL, 5, NULL);
             break;
         }
 
@@ -182,11 +183,15 @@ app_main()
     }
     ESP_ERROR_CHECK(ret);
 
+    wifi_init_sta();
+
+    xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
+
+    ESP_LOGI(TAG, "real start");
     button_init();
 
     ssd1306_init(SSD1306_I2C, 4, 5);
 
-    wifi_init_sta();
 
     /*ESP_LOGI(TAG, "waiting for IP");
     xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT, false, true, portMAX_DELAY);
