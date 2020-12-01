@@ -4,6 +4,11 @@
 
 #define TEST_PATTERNS 1
 
+// I2C header
+// 0x00: slave address = 0,1,1,1, 1,0,<SA0>,<R/#W> = 0x78
+// 0x01: control byte  = <Co>,<D/#C>,0,0, 0,0,0,0  = 0x00, 0x40, 0x80, 0xc0
+
+
 esp_err_t
 ssd1306_send_cmd_byte(i2c_port_t port, uint8_t code) {
     uint8_t send_command_cmd[] = {
@@ -94,11 +99,11 @@ ssd1306_set_range(i2c_port_t port, uint8_t col_min, uint8_t col_max, uint8_t pag
 
 esp_err_t
 ssd1306_clear(i2c_port_t port) {
-    esp_err_t status = ssd1306_set_range(port, 0, 127, 0, 3);
+    esp_err_t status = ssd1306_set_range(port, 0, 127, 0, 7);
     if (status != ESP_OK) {
         return status;
     }
-    return ssd1306_memset(port, 0, 128 * 4);
+    return ssd1306_memset(port, 0, 128 * 8);
 }
 
 esp_err_t
@@ -106,15 +111,22 @@ ssd1306_init(i2c_port_t port, int sda_io, int scl_io) {
     static uint8_t init_cmd[] = {
         0x78, 0x00,
         SSD1306_DISPLAY_OFF,
-        SSD1306_LAST_ROW, 0x3f,
+        SSD1306_FREQ_DIV, 0x80,
+        SSD1306_MULTIPLEX_RATIO, 0x3f,
+        SSD1306_OFFSET_ROWS, 0x00,
+        SSD1306_TOP_LINE + 0x00,
         SSD1306_CHARGEPUMP, 0x14,
-        SSD1306_ADDRESSING_MODE, 0,
-        SSD1306_COM_PINS, 0x02,
+        SSD1306_HORIZONTAL_FLIP,
+        SSD1306_VERTICAL_FLIP,
+        SSD1306_COM_PINS, 0x12,
+        SSD1306_CONTRAST, 0x7f,
+        SSD1306_PRECHARGE, 0xf1,
+        SSD1306_VCOM_DESELECT, 0x40,
         SSD1306_DISPLAY_RAM,
         SSD1306_DISPLAY_NORMAL,
-        SSD1306_CONTRAST, 0x7f,
-        SSD1306_NO_HORIZONTAL_FLIP,
-        SSD1306_VSCAN_INC,
+        SSD1306_COLUMN_START_LOW + 0x0,
+        SSD1306_COLUMN_START_HIGH + 0x0,
+        SSD1306_ADDRESSING_MODE, 0,
         SSD1306_DISPLAY_ON,
     };
 
@@ -129,8 +141,14 @@ ssd1306_init(i2c_port_t port, int sda_io, int scl_io) {
     //conf.master.clk_speed = 400000; // esp32
     conf.clk_stretch_tick = 300; // esp8266: 300 ticks, slave may hold down the clock this long
 
-    //status = i2c_driver_install(port, I2C_MODE_MASTER, 0, 0, 0); // esp32
-    status = i2c_driver_install(port, I2C_MODE_MASTER); // esp8266
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    status = i2c_driver_install(port, I2C_MODE_MASTER, 0, 0, 0);
+#elif defined(CONFIG_IDF_TARGET_ESP8266)
+    status = i2c_driver_install(port, I2C_MODE_MASTER);
+#else
+#   error "Unknown platform!"
+#endif 
+
     if (status != ESP_OK) {
         printf("i2c_driver_install failed; status=0x%02x\n", status);
         return status;
@@ -155,21 +173,21 @@ ssd1306_init(i2c_port_t port, int sda_io, int scl_io) {
         printf("ssd1306_init failed; status=0x%02x\n", status);
         return status;
     }
-    ssd1306_set_range(port, 0x00, 0x7f, 0, 3);
-    ssd1306_memset(port, 0, 128 * 64 / 8);
+    ssd1306_set_range(port, 0x00, 0x7f, 0, 7);
+    ssd1306_memset(port, 0, 128 * 8);
 
 #ifdef TEST_PATTERNS
-    // Binary pattern to page 0 (== rows 0..7)
-    ssd1306_set_range(port, 0x00, 0x7f, 0, 0);
+    // Binary pattern to page 7 (== rows 56..63)
+    ssd1306_set_range(port, 0x00, 0x7f, 7, 7);
     for (uint16_t i = 0; i < 0x80; ++i) {
         ssd1306_send_data_byte(port, i);
     }
 
-    // Sine pattern to page 1..7 (== rows 8..63)
-    ssd1306_set_range(port, 0x00, 0x7f, 1, 7);
-    for (uint16_t page = 0; page < 7; ++page) {
-        for (uint16_t i = 0; i < 0x80; ++i) {
-            int y = (int)(24 + (23 + sin(i * 3.1415926 / 64)));
+    // Sine pattern to page 0..6 (== rows 0..55)
+    ssd1306_set_range(port, 0x00, 0x7f, 0, 6);
+    for (int page = 0; page <= 6; ++page) {
+        for (int i = 0; i < 0x80; ++i) {
+            int y = (int)(28 + (27 * sin(i * 3.1415926 / 64)));
             y -= (page << 3);
             if ((0 <= y) && (y < 8)) {
                 ssd1306_send_data_byte(port, 1 << y);
