@@ -3,6 +3,7 @@
 #include "font6x8.h"
 #include "dns_server.h"
 #include "ota.h"
+#include "oled_stdout.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -183,29 +184,21 @@ app_main()
     }
     ESP_ERROR_CHECK(ret);
 
-    wifi_init_sta();
-
-    xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
+    //wifi_init_sta();
+    //xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
 
     ESP_LOGI(TAG, "real start");
+
     button_init();
-
     ssd1306_init(SSD1306_I2C, 4, 5);
+    lcd_init(SSD1306_I2C);
+    lcd_puts(5, 1, "Hello World!");
+    lcd_gotoxy(0, 2);
 
+    printf("printf\nworks");
+    fflush(stdout);
 
-    /*ESP_LOGI(TAG, "waiting for IP");
-    xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT, false, true, portMAX_DELAY);
-
-    ESP_LOGI(TAG, "got IP, checking OTA");
-    check_ota(); 
-
-    ESP_LOGI(TAG, "OTA check done, no news"); */
-
-    /*for (int i = 10; i >= 0; i--) {
-        ESP_LOGD(TAG, "Restarting in %d seconds...\n", i);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-    ESP_LOGI(TAG, "Restarting now.\n");
+    /* printf("Restarting now.\n");
     fflush(stdout);
     esp_restart(); */
 }
