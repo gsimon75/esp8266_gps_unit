@@ -4,6 +4,7 @@
 #include "dns_server.h"
 #include "ota.h"
 #include "oled_stdout.h"
+#include "gps.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -197,6 +198,8 @@ app_main()
 
     printf("printf\nworks");
     fflush(stdout);
+
+    gps_init();
 
     /* printf("Restarting now.\n");
     fflush(stdout);
