@@ -1,4 +1,6 @@
 #include "gps.h"
+#include "line_reader.h"
+#include "oled_stdout.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -17,35 +19,45 @@ static const char *TAG = "gps";
 #define BUF_SIZE 256
 static QueueHandle_t uart0_queue;
 
+static size_t available;
+
+static ssize_t
+gps_source(void *arg __attribute__((unused)), unsigned char *buf, size_t len) {
+    if (len > available) {
+        len = available;
+    }
+    if (len > 0) {
+        uart_read_bytes(UART_NUM_0, buf, len, portMAX_DELAY);
+        available -= len;
+
+        buf[len] = '\0';
+    }
+    return len;
+}
+
 static void
 uart_event_task(void *pvParameters) {
-    char *dtmp = (char *) malloc(BUF_SIZE);
+
+    line_reader_t *lr = lr_new(BUF_SIZE, gps_source, NULL);
 
     while (1) {
         uart_event_t event;
         if (xQueueReceive(uart0_queue, (void *)&event, (portTickType)portMAX_DELAY)) {
             switch (event.type) {
-                case UART_DATA:
-                    uart_read_bytes(UART_NUM_0, dtmp, event.size, portMAX_DELAY);
-                    dtmp[event.size] = '\0';
-
-                    char *msg = dtmp;
-                    char *eol;
-                    do {
-                        eol = strchr(msg, '\n');
-                        if (eol) {
-                            eol[((dtmp < eol) && (eol[-1] == '\r')) ? -1 : 0] = '\0'; // replace (cr)lf with nul
+                case UART_DATA: {
+                    ESP_LOGD(TAG, "UART_DATA %d bytes", event.size);
+                    available = event.size;
+                    unsigned char *line;
+                    while ((line = lr_read_line(lr))) { 
+                        ESP_LOGI(TAG, "%s", line);
+                        if (!strncmp(line + 3, "RMC", 3)) {
+                            lcd_gotoxy(0, 2);
+                            printf("%s", line);
+                            fflush(stdout);
                         }
-
-                        if (*msg) {
-                            ESP_LOGI(TAG, "%s", msg);
-                        }
-
-                        if (eol) {
-                            msg = eol + 1;
-                        }
-                    } while (eol);
+                    }
                     break;
+                }
 
                 case UART_FIFO_OVF:
                     ESP_LOGE(TAG, "hw fifo overflow");
@@ -73,8 +85,8 @@ uart_event_task(void *pvParameters) {
             }
         }
     }
-    free(dtmp);
-    dtmp = NULL;
+    lr_free(lr);
+    lr = NULL;
     vTaskDelete(NULL);
 }
 
@@ -88,7 +100,7 @@ gps_init(void) {
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
     uart_param_config(UART_NUM_0, &uart_config);
-    uart_driver_install(UART_NUM_0, BUF_SIZE * 2, BUF_SIZE * 2, 100, &uart0_queue, 0);
+    uart_driver_install(UART_NUM_0, UART_FIFO_LEN + 1, 0, 100, &uart0_queue, 0);
 
     xTaskCreate(uart_event_task, "gps", 2048, NULL, 12, NULL);
     return ESP_OK;
