@@ -194,10 +194,10 @@ app_main()
     ssd1306_init(SSD1306_I2C, 4, 5);
     lcd_init(SSD1306_I2C);
     lcd_puts(5, 1, "Hello World!");
-    lcd_gotoxy(0, 2);
 
+    /*lcd_gotoxy(0, 2);
     printf("printf\nworks");
-    fflush(stdout);
+    fflush(stdout); */
 
     gps_init();
 
