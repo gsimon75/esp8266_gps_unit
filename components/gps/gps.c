@@ -1,6 +1,7 @@
 #include "gps.h"
 #include "line_reader.h"
 #include "oled_stdout.h"
+#include "timegm.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -8,13 +9,16 @@
 #include <driver/uart.h>
 
 #undef LOG_LOCAL_LEVEL
-#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include <esp_log.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static const char *TAG = "gps";
+
+gps_fix_t gps_fix;
 
 #define BUF_SIZE 256
 static QueueHandle_t uart0_queue;
@@ -35,6 +39,146 @@ gps_source(void *arg __attribute__((unused)), unsigned char *buf, size_t len) {
     return len;
 }
 
+static bool
+split_by_comma(char *msg, char **field, int last_idx) {
+    for (int idx = 0; idx <= last_idx; ++idx) {
+        field[idx] = msg;
+        char *sep = strchr(msg, ',');
+        if (sep) {
+            if (idx == last_idx) { // too many fields
+                return false;
+            }
+            *sep = '\0';
+            msg = sep + 1;
+        }
+        else if (idx != last_idx) { // too few fields
+            return false;
+        }
+        ESP_LOGD(TAG, "field[%d]='%s'", idx, field[idx]);
+    }
+    return true;
+}
+
+
+static bool
+got_gprmc(char *msg) {
+    char * field[13];
+    gps_fix_t fix;
+
+    ESP_LOGD(TAG, "got GPRMC: '%s'", msg);
+    if (!split_by_comma(msg, field, 12)) {
+        return false;
+    }
+
+    // parse the quality
+    fix.is_valid = field[2][0] == 'A';
+
+    if (fix.is_valid) {
+        // parse the datetime
+        struct tm dt;
+        dt.tm_isdst = 0;
+        if (4 != sscanf(field[1], "%02d%02d%02d%f", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &fix.datetime))
+            return false;
+        if (3 != sscanf(field[1], "%02d%02d%02d", &dt.tm_mday, &dt.tm_mon, &dt.tm_year))
+            return false;
+        --dt.tm_mon;
+        dt.tm_year += 100;
+        fix.datetime += timegm(&dt); // please don't comment. this whole date format is crap right from the beginning
+
+        // parse the location
+        int degree;
+        float minute;
+        if (2 != sscanf(field[3], "%02d%f", &degree, &minute))
+            return false;
+        fix.latitude = degree + (minute / 60.0);
+        if (field[4][0] == 'S')
+            fix.latitude = -fix.latitude;
+        if (2 != sscanf(field[5], "%03d%f", &degree, &minute))
+            return false;
+        fix.longitude = degree + (minute / 60.0);
+        if (field[6][0] == 'W')
+            fix.longitude = -fix.longitude;
+
+        // parse speed
+        if (1 != sscanf(field[7], "%f", &fix.speed_kph))
+            return false;
+        fix.speed_kph *= 1.852; // knots to kph. don't... please just don't. i also would've preferred earth-radius per lunar phase cycle as a speed unit...
+
+        // parse angle
+        if (1 != sscanf(field[8], "%f", &fix.angle))
+            return false;
+    }
+    else {
+        fix.datetime = 0;
+        fix.latitude = 0;
+        fix.longitude = 0;
+        fix.speed_kph = 0;
+        fix.angle = 0;
+    }
+
+    ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
+    taskENTER_CRITICAL();
+    bool changed =
+           (gps_fix.is_valid  != fix.is_valid)
+        || (gps_fix.datetime  != fix.datetime)
+        || (gps_fix.latitude  != fix.latitude)
+        || (gps_fix.longitude != fix.longitude)
+        || (gps_fix.speed_kph != fix.speed_kph)
+        || (gps_fix.angle     != fix.angle);
+    if (changed) {
+        gps_fix.is_valid  = fix.is_valid;
+        gps_fix.datetime  = fix.datetime;
+        gps_fix.latitude  = fix.latitude;
+        gps_fix.longitude = fix.longitude;
+        gps_fix.speed_kph = fix.speed_kph;
+        gps_fix.angle     = fix.angle;
+        gps_fix.tick      = soc_get_ccount();
+    }
+    taskEXIT_CRITICAL();
+
+    if (changed) {
+        // FIXME: fire an event
+        // FIXME: tune the clock
+        ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
+    }
+
+    lcd_gotoxy(0, 2);
+    printf("%d, %5.3f, %5.3f, %f", fix.is_valid, fix.latitude, fix.longitude, fix.datetime);
+    fflush(stdout);
+    return true;
+}
+
+static bool
+check_nmea(uint8_t *msg) {
+    if (!msg || (msg[0] != '$')) {
+        return false;
+    }
+    msg++;
+
+    uint8_t *sep = strchr(msg, '*');
+    if (!sep || !sep[1] || !sep[2] || sep[3]) {
+        return false;
+    }
+    uint8_t chksum = 0;
+    for (const uint8_t *p = msg; p != sep; ++p) {
+        chksum ^= *p;
+    }
+
+    uint8_t *p;
+    uint8_t shouldbe = strtol(sep + 1, (char**)&p, 16);
+    if (*p || (chksum != shouldbe)) {
+        return false;
+    }
+    *sep = '\0';
+
+    if (!strncmp(msg, "GPRMC,", 6)) {
+        got_gprmc((char*)msg);
+    }
+    else {
+    }
+    return true;
+}
+
 static void
 uart_event_task(void *pvParameters) {
 
@@ -45,16 +189,12 @@ uart_event_task(void *pvParameters) {
         if (xQueueReceive(uart0_queue, (void *)&event, (portTickType)portMAX_DELAY)) {
             switch (event.type) {
                 case UART_DATA: {
-                    ESP_LOGD(TAG, "UART_DATA %d bytes", event.size);
+                    ESP_LOGV(TAG, "UART_DATA %d bytes", event.size);
                     available = event.size;
                     unsigned char *line;
                     while ((line = lr_read_line(lr))) { 
                         ESP_LOGI(TAG, "%s", line);
-                        if (!strncmp(line + 3, "RMC", 3)) {
-                            lcd_gotoxy(0, 2);
-                            printf("%s", line);
-                            fflush(stdout);
-                        }
+                        check_nmea(line);
                     }
                     break;
                 }
@@ -92,6 +232,10 @@ uart_event_task(void *pvParameters) {
 
 esp_err_t
 gps_init(void) {
+    gps_fix.tick = soc_get_ccount();
+    gps_fix.is_valid = false;
+    ESP_LOGD(TAG, "_xt_tick_divisor=%u", _xt_tick_divisor);
+
     uart_config_t uart_config = {
         .baud_rate = 9600,
         .data_bits = UART_DATA_8_BITS,
