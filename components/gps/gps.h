@@ -7,7 +7,7 @@
 typedef struct {
     esp_tick_t tick;
     bool is_valid;
-    float datetime, latitude, longitude, speed_kph, angle;
+    float datetime, latitude, longitude, speed_kph, azimuth;
 } gps_fix_t;
 
 extern gps_fix_t gps_fix;

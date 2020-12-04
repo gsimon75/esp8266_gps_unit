@@ -54,7 +54,6 @@ split_by_comma(char *msg, char **field, int last_idx) {
         else if (idx != last_idx) { // too few fields
             return false;
         }
-        ESP_LOGD(TAG, "field[%d]='%s'", idx, field[idx]);
     }
     return true;
 }
@@ -77,10 +76,12 @@ got_gprmc(char *msg) {
         // parse the datetime
         struct tm dt;
         dt.tm_isdst = 0;
-        if (4 != sscanf(field[1], "%02d%02d%02d%f", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &fix.datetime))
+        if (4 != sscanf(field[1], "%02d%02d%02d%f", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &fix.datetime)) {
             return false;
-        if (3 != sscanf(field[1], "%02d%02d%02d", &dt.tm_mday, &dt.tm_mon, &dt.tm_year))
+        }
+        if (3 != sscanf(field[9], "%02d%02d%02d", &dt.tm_mday, &dt.tm_mon, &dt.tm_year)) {
             return false;
+        }
         --dt.tm_mon;
         dt.tm_year += 100;
         fix.datetime += timegm(&dt); // please don't comment. this whole date format is crap right from the beginning
@@ -88,35 +89,40 @@ got_gprmc(char *msg) {
         // parse the location
         int degree;
         float minute;
-        if (2 != sscanf(field[3], "%02d%f", &degree, &minute))
+        if (2 != sscanf(field[3], "%02d%f", &degree, &minute)) {
             return false;
+        }
         fix.latitude = degree + (minute / 60.0);
         if (field[4][0] == 'S')
             fix.latitude = -fix.latitude;
-        if (2 != sscanf(field[5], "%03d%f", &degree, &minute))
+        if (2 != sscanf(field[5], "%03d%f", &degree, &minute)) {
             return false;
+        }
         fix.longitude = degree + (minute / 60.0);
         if (field[6][0] == 'W')
             fix.longitude = -fix.longitude;
 
         // parse speed
-        if (1 != sscanf(field[7], "%f", &fix.speed_kph))
+        if (1 != sscanf(field[7], "%f", &fix.speed_kph)) {
             return false;
-        fix.speed_kph *= 1.852; // knots to kph. don't... please just don't. i also would've preferred earth-radius per lunar phase cycle as a speed unit...
+        }
+        fix.speed_kph *= 1.852; // knots to kph. don't... please just don't. i also would've preferred earth radius per lunar phase cycle as a speed unit...
 
-        // parse angle
-        if (1 != sscanf(field[8], "%f", &fix.angle))
-            return false;
+        // parse azimuth
+        if (1 != sscanf(field[8], "%f", &fix.azimuth)) {
+            // valid if missing (eg. when standing still), use the last one in this case
+            fix.azimuth = gps_fix.azimuth;
+        }
     }
     else {
         fix.datetime = 0;
         fix.latitude = 0;
         fix.longitude = 0;
         fix.speed_kph = 0;
-        fix.angle = 0;
+        fix.azimuth = 0;
     }
 
-    ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
+
     taskENTER_CRITICAL();
     bool changed =
            (gps_fix.is_valid  != fix.is_valid)
@@ -124,22 +130,22 @@ got_gprmc(char *msg) {
         || (gps_fix.latitude  != fix.latitude)
         || (gps_fix.longitude != fix.longitude)
         || (gps_fix.speed_kph != fix.speed_kph)
-        || (gps_fix.angle     != fix.angle);
+        || (gps_fix.azimuth   != fix.azimuth);
     if (changed) {
         gps_fix.is_valid  = fix.is_valid;
         gps_fix.datetime  = fix.datetime;
         gps_fix.latitude  = fix.latitude;
         gps_fix.longitude = fix.longitude;
         gps_fix.speed_kph = fix.speed_kph;
-        gps_fix.angle     = fix.angle;
+        gps_fix.azimuth   = fix.azimuth;
         gps_fix.tick      = soc_get_ccount();
     }
     taskEXIT_CRITICAL();
 
     if (changed) {
+        ESP_LOGD(TAG, "v=%d, t=%f, lat=%f, lng=%f, spd=%f, azm=%f", fix.is_valid, fix.datetime, fix.latitude, fix.longitude, fix.speed_kph, fix.azimuth);
         // FIXME: fire an event
         // FIXME: tune the clock
-        ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
     }
 
     lcd_gotoxy(0, 2);
