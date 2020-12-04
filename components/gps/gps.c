@@ -19,13 +19,61 @@
 
 static const char *TAG = "gps";
 
+#define USE_NMEA
+//#define USE_UBX
+
 gps_fix_t gps_fix;
 
-#define BUF_SIZE 256
+#define BUF_SIZE 128
 static QueueHandle_t uart0_queue;
 
-uint8_t buf[BUF_SIZE + 1], *wr = buf;
-bool ubx_ready = true;
+static uint8_t buf[BUF_SIZE + 1], *wr = buf;
+
+static const uint8_t * init_msgs[] = {
+    "\xb5\x62\x06\x01\x03\x00\xf0\x00\x00\xfa\x0f", // disable NMEA-GGA
+    "\xb5\x62\x06\x01\x03\x00\xf0\x01\x00\xfb\x11", // disable NMEA-GLL
+    "\xb5\x62\x06\x01\x03\x00\xf0\x02\x00\xfc\x13", // disable NMEA-GSA
+    "\xb5\x62\x06\x01\x03\x00\xf0\x03\x00\xfd\x15", // disable NMEA-GSV
+    "\xb5\x62\x06\x01\x03\x00\xf0\x05\x00\xff\x19", // disable NMEA-VTG
+
+#ifdef USE_NMEA
+    "\xb5\x62\x06\x01\x03\x00\xf0\x04\x01\xff\x18", // enable NMEA-RMC
+#else
+    "\xb5\x62\x06\x01\x03\x00\xf0\x04\x00\xfe\x17", // disable NMEA-RMC
+#endif // USE_NMEA
+
+#ifdef USE_UBX
+    "\xb5\x62\x06\x01\x03\x00\x01\x02\x01\x0e\x47", // enable NAV-POSLLH
+    "\xb5\x62\x06\x01\x03\x00\x01\x12\x01\x1e\x67", // enable NAV-VELNED
+    "\xb5\x62\x06\x01\x03\x00\x01\x21\x01\x2d\x85", // enable NAV-TIMEUTC
+#else
+    "\xb5\x62\x06\x01\x03\x00\x01\x02\x00\x0d\x46", // disable NAV-POSLLH
+    "\xb5\x62\x06\x01\x03\x00\x01\x12\x00\x1d\x66", // disable NAV-VELNED
+    "\xb5\x62\x06\x01\x03\x00\x01\x21\x00\x2c\x84", // disable NAV-TIMEUTC
+#endif // !USE_UBX
+
+    NULL
+};
+
+static const uint8_t **cur_init_msg;
+
+
+static void
+process_new_fix(void) {
+    ESP_LOGD(TAG, "v=%d, t=%lf, lat=%f, lng=%f, spd=%f, azm=%f", gps_fix.is_valid, gps_fix.datetime, gps_fix.latitude, gps_fix.longitude, gps_fix.speed_kph, gps_fix.azimuth);
+    // FIXME: fire an event
+    // FIXME: tune the clock
+
+    lcd_gotoxy(0, 2);
+    printf("%d, %5.3f, %5.3f, %lf", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, gps_fix.datetime);
+    fflush(stdout);
+}
+
+
+static void
+process_new_time(double datetime) {
+    ESP_LOGD(TAG, "new time, dt=%lf", datetime);
+}
 
 
 static bool
@@ -49,11 +97,11 @@ split_by_comma(char *msg, char **field, int last_idx) {
 
 
 static bool
-got_gprmc(char *msg) {
+got_GPRMC(char *msg) {
     char * field[13];
     gps_fix_t fix;
 
-    //ESP_LOGD(TAG, "got GPRMC: '%s'", msg);
+    ESP_LOGD(TAG, "%s", msg);
     if (!split_by_comma(msg, field, 12)) {
         return false;
     }
@@ -65,7 +113,7 @@ got_gprmc(char *msg) {
         // parse the datetime
         struct tm dt;
         dt.tm_isdst = 0;
-        if (4 != sscanf(field[1], "%02d%02d%02d%f", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &fix.datetime)) {
+        if (4 != sscanf(field[1], "%02d%02d%02d%lf", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &fix.datetime)) {
             return false;
         }
         if (3 != sscanf(field[9], "%02d%02d%02d", &dt.tm_mday, &dt.tm_mon, &dt.tm_year)) {
@@ -73,7 +121,9 @@ got_gprmc(char *msg) {
         }
         --dt.tm_mon;
         dt.tm_year += 100;
+        ESP_LOGD(TAG, "GPRMC time before; sec=%d, fixtime=%lf", dt.tm_sec, fix.datetime);
         fix.datetime += timegm(&dt); // please don't comment. this whole date format is crap right from the beginning
+        ESP_LOGD(TAG, "GPRMC time after; fixtime=%f", fix.datetime);
 
         // parse the location
         int degree;
@@ -111,6 +161,9 @@ got_gprmc(char *msg) {
         fix.azimuth = 0;
     }
 
+    if (gps_fix.datetime != fix.datetime) {
+        process_new_time(fix.datetime);
+    }
 
     taskENTER_CRITICAL();
     bool changed =
@@ -127,25 +180,17 @@ got_gprmc(char *msg) {
         gps_fix.longitude = fix.longitude;
         gps_fix.speed_kph = fix.speed_kph;
         gps_fix.azimuth   = fix.azimuth;
-        gps_fix.tick      = soc_get_ccount();
     }
     taskEXIT_CRITICAL();
-
     if (changed) {
-        ESP_LOGD(TAG, "v=%d, t=%f, lat=%f, lng=%f, spd=%f, azm=%f", fix.is_valid, fix.datetime, fix.latitude, fix.longitude, fix.speed_kph, fix.azimuth);
-        // FIXME: fire an event
-        // FIXME: tune the clock
+        process_new_fix();
     }
-
-    lcd_gotoxy(0, 2);
-    printf("%d, %5.3f, %5.3f, %f", fix.is_valid, fix.latitude, fix.longitude, fix.datetime);
-    fflush(stdout);
     return true;
 }
 
-bool
+
+static bool
 got_nmea(const uint8_t *msg, size_t len) {
-    ESP_LOGD(TAG, "NMEA: '%s'", msg);
     uint8_t chksum = 0, shouldbe;
     const uint8_t *end = msg + len;
     const uint8_t *p;
@@ -163,36 +208,189 @@ got_nmea(const uint8_t *msg, size_t len) {
         return false;
     }
     if (chksum != shouldbe) {
-        ESP_LOGE("NMEA checksum error: is=%02x, shouldbe=%02x", chksum, shouldbe);
+        ESP_LOGE(TAG, "NMEA checksum error: is=%02x, shouldbe=%02x", chksum, shouldbe);
         return false;
     }
 
     if (!strncmp(msg, "GPRMC,", 6)) {
-        got_gprmc((char*)msg);
+        got_GPRMC((char*)msg);
+    }
+    else {
+        ESP_LOGD(TAG, "NMEA: '%s'", msg);
     }
 
     return true;
 }
 
-int
+
+static bool
+send_ubx(const uint8_t *msg) {
+    size_t len = 8 + le16dec(msg + 4);
+    int res = uart_write_bytes(UART_NUM_0, msg, len);
+    if (res != len) {
+        ESP_LOGE(TAG, "Failed to send complete message, sent=%d, len=%d", res, len);
+        return false;
+    }
+    return true;
+}
+
+
+static void
+got_NAV_POSLLH(const uint8_t *payload) {
+    uint32_t iTOW   = le32dec(payload +  0);
+    int32_t  lon    = le32dec(payload +  4);
+    int32_t  lat    = le32dec(payload +  8);
+    int32_t  height = le32dec(payload + 12);
+    int32_t  hMSL   = le32dec(payload + 16);
+    uint32_t hAcc   = le32dec(payload + 20);
+    uint32_t vAcc   = le32dec(payload + 24);
+    ESP_LOGD(TAG, "NAV-POSLLG iTOW=%u, lon=%d, lat=%d, height=%d, hMSL=%d, hAcc=%u, vAcc=%u",
+        iTOW, lon, lat, height, hMSL, hAcc, vAcc);
+
+    float latitude = lat * 1e-7;
+    float longitude = lon * 1e-7;
+    taskENTER_CRITICAL();
+    bool changed = (gps_fix.latitude != latitude) || (gps_fix.longitude != longitude);
+    if (changed) {
+        gps_fix.latitude  = latitude;
+        gps_fix.longitude = longitude;
+    }
+    taskEXIT_CRITICAL();
+    if (changed) {
+        process_new_fix();
+    }
+}
+
+
+static void
+got_NAV_TIMEUTC(const uint8_t *payload) {
+    uint32_t iTOW   = le32dec(payload +  0);
+    uint32_t tAcc   = le32dec(payload +  4);
+    int32_t  nano   = le32dec(payload +  8);
+    uint16_t year   = le32dec(payload + 12);
+    uint8_t  month  = payload[14];
+    uint8_t  day    = payload[15];
+    uint8_t  hour   = payload[16];
+    uint8_t  minute = payload[17];
+    uint8_t  sec    = payload[18];
+    uint8_t  valid  = payload[19];
+    ESP_LOGD(TAG, "NAV-TIMEUTC iTOW=%u, tAcc=%u, nano=%d, year=%u, month=%u, day=%u, hour=%u, minute=%d, sec=%u, valid=%u",
+        iTOW, tAcc, nano, year, month, day, hour, minute, sec, valid);
+
+    struct tm dt = {
+        .tm_year = year - 1900,
+        .tm_mon = month - 1,
+        .tm_mday = day,
+        .tm_hour = hour,
+        .tm_min = minute,
+        .tm_sec = sec,
+        .tm_isdst = 0,
+    };
+    double datetime = timegm(&dt) + nano * 1e-9;
+
+    if (gps_fix.datetime != datetime) {
+        process_new_time(datetime);
+    }
+
+    taskENTER_CRITICAL();
+    bool changed = (gps_fix.datetime != datetime);
+    if (changed) {
+        gps_fix.datetime  = datetime;
+    }
+    taskEXIT_CRITICAL();
+    if (changed) {
+        process_new_fix();
+    }
+}
+
+
+static void
+got_NAV_VELNED(const uint8_t *payload) {
+    uint32_t iTOW    = le32dec(payload +  0);
+    int32_t  velN    = le32dec(payload +  4);
+    int32_t  velE    = le32dec(payload +  8);
+    int32_t  velD    = le32dec(payload + 12);
+    uint32_t speed   = le32dec(payload + 16);
+    uint32_t gSpeed  = le32dec(payload + 20);
+    int32_t  heading = le32dec(payload + 24);
+    uint32_t sAcc    = le32dec(payload + 28);
+    uint32_t cAcc    = le32dec(payload + 32);
+    ESP_LOGD(TAG, "NAV-VELNED iTOW=%u, velN=%d, velE=%d, velD=%d, speed=%u, gSpeed=%u, heading=%d, sAcc=%u, cAcc=%u",
+        iTOW, velN, velE, velD, speed, gSpeed, heading, sAcc, cAcc);
+
+    float speed_kph = speed * 0.036; // cm/s to km/h
+    float azimuth = heading * 1e-5;
+    taskENTER_CRITICAL();
+    bool changed = (gps_fix.speed_kph != speed_kph) || (gps_fix.azimuth != azimuth);
+    if (changed) {
+        gps_fix.speed_kph = speed_kph;
+        gps_fix.azimuth   = azimuth;
+    }
+    taskEXIT_CRITICAL();
+    if (changed) {
+        process_new_fix();
+    }
+}
+
+
+static int
 got_ubx(const uint8_t *msg, size_t payload_len) {
-    ESP_LOGD(TAG, "UBX: class=0x%02x, id=0x%02x, payload_len=0x%04x", msg[2], msg[3], payload_len);
+    void
+    dump_generic(void) {
+        ESP_LOGD(TAG, "UBX: class=0x%02x, id=0x%02x, payload_len=0x%04x", msg[2], msg[3], payload_len);
+        hexdump(msg + 6, payload_len);
+    }
 
     uint8_t ck_a = 0, ck_b = 0;
     for (int i = 2; i < (payload_len + 6); ++i) {
            ck_a = ck_a + msg[i];
            ck_b = ck_b + ck_a;
     }
-    hexdump(msg + 6, payload_len);
     if ((msg[payload_len + 6] != ck_a) || (msg[payload_len + 7] != ck_b)) {
         printf("UBX checksum error: is=[%02x, %02x], shouldbe=[%02x, %02x]", msg[payload_len + 6], msg[payload_len + 7], ck_a, ck_b);
+        dump_generic();
         return false;
     }
 
-    if (msg[2] == 0x05) { // ACK-ACK or ACK-NAK
-        // 05,01 = ACK-ACK, 05,02 = ACK-NAK
-        // msg[6] = class, msg[7] = id of the message being acknowledged
-        ubx_ready = true; // FIXME: no error handling, go ahead
+    switch (msg[2]) {
+        case 0x05: // ACK-*
+            if ((msg[6] == (*cur_init_msg)[2]) && (msg[7] == (*cur_init_msg)[3])) {
+                if (msg[3] != 0x01) {
+                    ESP_LOGW(TAG, "UBX ACK-NAK for %02x,%02x", msg[6], msg[7]);
+                }
+                if (cur_init_msg[1]) {
+                    ++cur_init_msg;
+                    send_ubx(*cur_init_msg);
+                }
+                else {
+                    ESP_LOGI(TAG, "All init messages acknowledged");
+                }
+            }
+            else {
+                ESP_LOGW(TAG, "UBX ACK-* for unknown message: got=%02x,%02x, expected=%02x,%02x", msg[6], msg[7], (*cur_init_msg)[2], (*cur_init_msg)[3]);
+            }
+            break;
+
+        case 0x01: // NAV-*
+            switch (msg[3]) {
+                case 0x02:
+                    got_NAV_POSLLH(msg + 6);
+                    break;
+                case 0x12:
+                    got_NAV_VELNED(msg + 6);
+                    break;
+                case 0x21:
+                    got_NAV_TIMEUTC(msg + 6);
+                    break;
+                default:
+                    dump_generic();
+                    break;
+            }
+            break;
+
+        default:
+            dump_generic();
+            break;
     }
     return true;
 }
@@ -239,7 +437,7 @@ got_data(size_t available) {
             }
             else if ((rd[0] == 0xb5) && (rd[1] == 0x62)) { // ubx message at the beginning (may be incomplete/invalid)
                 if ((rd + 5) < wr) { // long enough to already contain the length field
-                    uint16_t m_len = le16toh(*(uint16_t*)(rd + 4));
+                    uint16_t m_len = le16dec(rd + 4);
                     if ((rd + 8 + m_len) < wr) { // complete
                         got_ubx(rd, m_len);
                         rd += 8 + m_len;
@@ -292,11 +490,13 @@ got_data(size_t available) {
 
 static void
 uart_event_task(void *pvParameters) {
+    send_ubx(*cur_init_msg);
     while (1) {
         uart_event_t event;
         if (xQueueReceive(uart0_queue, (void *)&event, (portTickType)portMAX_DELAY)) {
             switch (event.type) {
                 case UART_DATA:
+                    //tick_recvd = soc_get_ccount();
                     got_data(event.size);
                     break;
 
@@ -331,9 +531,10 @@ uart_event_task(void *pvParameters) {
 
 esp_err_t
 gps_init(void) {
-    gps_fix.tick = soc_get_ccount();
     gps_fix.is_valid = false;
-    ESP_LOGD(TAG, "_xt_tick_divisor=%u", _xt_tick_divisor);
+    cur_init_msg = init_msgs;
+    //ESP_LOGD(TAG, "_xt_tick_divisor=%u", _xt_tick_divisor);
+    // NOTE: the ccount register is reset at every systick and also when sleeping (facepalm), so it's unusable...
 
     uart_config_t uart_config = {
         .baud_rate = 9600,
