@@ -1,3 +1,5 @@
+#include "misc.h"
+
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/event_groups.h>
@@ -49,34 +51,6 @@ static const char OTA_FIRMWARE_DESC[] = "hello-world.desc"; // arg: ota partitio
 
 #define BUFSIZE 512
 
-
-void
-hexdump(const unsigned char *data, ssize_t len) {
-    size_t offs = 0;
-    char linebuf[4 + 2 + 3*16 + 1 + 16 + 1];
-    while (len > 0) {
-        int i;
-        char *p = linebuf;
-        p += sprintf(p, "%04x:", offs);
-        for (i = 0; (i < len) && (i < 0x10); ++i) {
-            p += sprintf(p, " %02x", data[i]);
-        }
-        for (; i < 0x10; ++i) {
-            *(p++) = ' ';
-            *(p++) = ' ';
-            *(p++) = ' ';
-        }
-        *(p++) = ' ';
-        for (i = 0; (i < len) && (i < 0x10); ++i) {
-            *(p++) = isprint(data[i]) ? data[i] : '.'; 
-        }
-        *(p++) = '\0';
-        ESP_LOGD(TAG, "%s", linebuf);
-        offs += 0x10;
-        data += 0x10;
-        len -= 0x10;
-    }
-}
 
 #define LOG_PARTITION(name, p) ESP_LOGI(TAG, name " partition: address=0x%08x, size=0x%08x, type=%d, subtype=%d, label='%s'", (p)->address, (p)->size, (p)->type, (p)->subtype, (p)->label);
 
