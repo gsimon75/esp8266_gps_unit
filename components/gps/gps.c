@@ -1,7 +1,7 @@
 #include "gps.h"
 #include "line_reader.h"
 #include "oled_stdout.h"
-#include "timegm.h"
+#include "misc.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <endian.h>
 
 static const char *TAG = "gps";
 
@@ -23,21 +24,9 @@ gps_fix_t gps_fix;
 #define BUF_SIZE 256
 static QueueHandle_t uart0_queue;
 
-static size_t available;
+uint8_t buf[BUF_SIZE + 1], *wr = buf;
+bool ubx_ready = true;
 
-static ssize_t
-gps_source(void *arg __attribute__((unused)), unsigned char *buf, size_t len) {
-    if (len > available) {
-        len = available;
-    }
-    if (len > 0) {
-        uart_read_bytes(UART_NUM_0, buf, len, portMAX_DELAY);
-        available -= len;
-
-        buf[len] = '\0';
-    }
-    return len;
-}
 
 static bool
 split_by_comma(char *msg, char **field, int last_idx) {
@@ -64,7 +53,7 @@ got_gprmc(char *msg) {
     char * field[13];
     gps_fix_t fix;
 
-    ESP_LOGD(TAG, "got GPRMC: '%s'", msg);
+    //ESP_LOGD(TAG, "got GPRMC: '%s'", msg);
     if (!split_by_comma(msg, field, 12)) {
         return false;
     }
@@ -154,85 +143,189 @@ got_gprmc(char *msg) {
     return true;
 }
 
-static bool
-check_nmea(uint8_t *msg) {
-    if (!msg || (msg[0] != '$')) {
-        return false;
-    }
-    msg++;
+bool
+got_nmea(const uint8_t *msg, size_t len) {
+    ESP_LOGD(TAG, "NMEA: '%s'", msg);
+    uint8_t chksum = 0, shouldbe;
+    const uint8_t *end = msg + len;
+    const uint8_t *p;
 
-    uint8_t *sep = strchr(msg, '*');
-    if (!sep || !sep[1] || !sep[2] || sep[3]) {
-        return false;
-    }
-    uint8_t chksum = 0;
-    for (const uint8_t *p = msg; p != sep; ++p) {
+    ++msg; // skip '$'
+    for (p = msg; (p < end) && (*p != '*'); ++p) {
         chksum ^= *p;
     }
-
-    uint8_t *p;
-    uint8_t shouldbe = strtol(sep + 1, (char**)&p, 16);
-    if (*p || (chksum != shouldbe)) {
+    if ((p + 3) != end) { // checksum format invalid
         return false;
     }
-    *sep = '\0';
+    char *err = NULL;
+    shouldbe = strtol((const char*)(p + 1), &err, 16);
+    if ( *err) { // checksum not hex
+        return false;
+    }
+    if (chksum != shouldbe) {
+        ESP_LOGE("NMEA checksum error: is=%02x, shouldbe=%02x", chksum, shouldbe);
+        return false;
+    }
 
     if (!strncmp(msg, "GPRMC,", 6)) {
         got_gprmc((char*)msg);
     }
-    else {
+
+    return true;
+}
+
+int
+got_ubx(const uint8_t *msg, size_t payload_len) {
+    ESP_LOGD(TAG, "UBX: class=0x%02x, id=0x%02x, payload_len=0x%04x", msg[2], msg[3], payload_len);
+
+    uint8_t ck_a = 0, ck_b = 0;
+    for (int i = 2; i < (payload_len + 6); ++i) {
+           ck_a = ck_a + msg[i];
+           ck_b = ck_b + ck_a;
+    }
+    hexdump(msg + 6, payload_len);
+    if ((msg[payload_len + 6] != ck_a) || (msg[payload_len + 7] != ck_b)) {
+        printf("UBX checksum error: is=[%02x, %02x], shouldbe=[%02x, %02x]", msg[payload_len + 6], msg[payload_len + 7], ck_a, ck_b);
+        return false;
+    }
+
+    if (msg[2] == 0x05) { // ACK-ACK or ACK-NAK
+        // 05,01 = ACK-ACK, 05,02 = ACK-NAK
+        // msg[6] = class, msg[7] = id of the message being acknowledged
+        ubx_ready = true; // FIXME: no error handling, go ahead
     }
     return true;
 }
 
+
+static void
+got_data(size_t available) {
+    //ESP_LOGV(TAG, "UART_DATA %d bytes", available);
+
+    while (available > 0) {
+
+        size_t rdlen =  buf + BUF_SIZE - wr;
+        if (rdlen == 0) {
+            ESP_LOGE(TAG, "Buffer overflow");
+            wr = buf;
+            rdlen = BUF_SIZE;
+        }
+
+        if (rdlen > available) {
+            rdlen = available;
+        }
+
+        // read some
+        //ESP_LOGD(TAG, "Reading max 0x%x to 0x%x", rdlen, wr - buf);
+        uart_read_bytes(UART_NUM_0, wr, rdlen, portMAX_DELAY);
+        wr += rdlen;
+        available -= rdlen;
+        //hexdump(buf, wr - buf);
+
+        // process it
+        uint8_t *rd = buf;
+        while (rd < wr) {
+            //ESP_LOGD(TAG, "Msg loop, wr=0x%x, rd=0x%x", wr - buf, rd - buf);
+
+            if (rd[0] == '$') { // nmea message at the beginning (may be incomplete/invalid)
+                uint8_t *pos_crlf = memmem(rd, wr - rd, "\r\n", 2);
+                if (pos_crlf == NULL) { // incomplete
+                    break;
+                }
+                // complete
+                *pos_crlf = 0;
+                got_nmea(rd, pos_crlf - rd);
+                rd = pos_crlf + 2;
+            }
+            else if ((rd[0] == 0xb5) && (rd[1] == 0x62)) { // ubx message at the beginning (may be incomplete/invalid)
+                if ((rd + 5) < wr) { // long enough to already contain the length field
+                    uint16_t m_len = le16toh(*(uint16_t*)(rd + 4));
+                    if ((rd + 8 + m_len) < wr) { // complete
+                        got_ubx(rd, m_len);
+                        rd += 8 + m_len;
+                        continue;
+                    }
+                }
+                // incomplete
+                break;
+            }
+            else { // junk at the beginning
+                // try to find the beginning of a recognized message
+                uint8_t *pos_nmea = (uint8_t*)memchr(rd, '$', wr - rd);
+                uint8_t *pos_ubx = (uint8_t*)memmem(rd, wr - rd, "\xb5\x62", 2);
+
+                if (pos_nmea == NULL) {
+                    rd = pos_ubx;
+                }
+                else if (pos_ubx == NULL) {
+                    rd = pos_nmea;
+                }
+                else if (pos_ubx < pos_nmea) {
+                    rd = pos_ubx;
+                }
+                else {
+                    rd = pos_nmea;
+                }
+
+                if (rd == NULL) { // all junk, skip it
+                    rd = wr;
+                    break;
+                }
+            }
+        } // while (rd < wr)
+
+        if (rd < wr) {
+            //ESP_LOGD(TAG, "Keeping incomplete 0x%x bytes", wr - rd);
+            if (rd != buf) {
+                memmove(buf, rd, wr - rd);
+                wr = buf + (wr - rd);
+            }
+        }
+        else {
+            //ESP_LOGD(TAG, "All processed");
+            wr = buf;
+        }
+
+    } // while (available > 0)
+}
+
+
 static void
 uart_event_task(void *pvParameters) {
-
-    line_reader_t *lr = lr_new(BUF_SIZE, gps_source, NULL);
-
     while (1) {
         uart_event_t event;
         if (xQueueReceive(uart0_queue, (void *)&event, (portTickType)portMAX_DELAY)) {
             switch (event.type) {
-                case UART_DATA: {
-                    ESP_LOGV(TAG, "UART_DATA %d bytes", event.size);
-                    available = event.size;
-                    unsigned char *line;
-                    while ((line = lr_read_line(lr))) { 
-                        ESP_LOGI(TAG, "%s", line);
-                        check_nmea(line);
-                    }
+                case UART_DATA:
+                    got_data(event.size);
                     break;
-                }
 
                 case UART_FIFO_OVF:
-                    ESP_LOGE(TAG, "hw fifo overflow");
+                    ESP_LOGE(TAG, "Hw fifo overflow");
                     uart_flush_input(UART_NUM_0);
                     xQueueReset(uart0_queue);
                     break;
 
                 case UART_BUFFER_FULL:
-                    ESP_LOGE(TAG, "ring buffer full");
+                    ESP_LOGE(TAG, "Ring buffer full");
                     uart_flush_input(UART_NUM_0);
                     xQueueReset(uart0_queue);
                     break;
 
                 case UART_PARITY_ERR:
-                    ESP_LOGE(TAG, "uart parity error");
+                    ESP_LOGE(TAG, "Parity error");
                     break;
 
                 case UART_FRAME_ERR:
-                    ESP_LOGE(TAG, "uart frame error");
+                    ESP_LOGE(TAG, "Frame error");
                     break;
 
                 default:
-                    ESP_LOGI(TAG, "uart event type: %d", event.type);
+                    ESP_LOGI(TAG, "Unknown event type %d", event.type);
                     break;
             }
         }
     }
-    lr_free(lr);
-    lr = NULL;
     vTaskDelete(NULL);
 }
 

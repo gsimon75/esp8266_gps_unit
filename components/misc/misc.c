@@ -1,4 +1,11 @@
-#include "timegm.h"
+#include "misc.h"
+
+#undef LOG_LOCAL_LEVEL
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+
+#include <esp_log.h>
+#include <ctype.h>
+#include <stdio.h>
 
 #define _SEC_IN_MINUTE 60L
 #define _SEC_IN_HOUR 3600L
@@ -8,6 +15,8 @@ static const int _DAYS_BEFORE_MONTH[12] = {0, 31, 59, 90, 120, 151, 181, 212, 24
 
 #define _ISLEAP(y) (((y) % 4) == 0 && (((y) % 100) != 0 || (((y)+1900) % 400) == 0))
 #define _DAYS_IN_YEAR(year) (_ISLEAP(year) ? 366 : 365)
+
+static const char *TAG = "misc";
 
 time_t 
 timegm(struct tm *tim_p)
@@ -42,4 +51,35 @@ timegm(struct tm *tim_p)
 
     return tim;
 }
+
+
+void
+hexdump(const uint8_t *data, ssize_t len) {
+    size_t offs = 0;
+    char linebuf[4 + 2 + 3*16 + 1 + 16 + 1];
+    while (len > 0) {
+        int i;
+        char *p = linebuf;
+        p += sprintf(p, "%04x:", offs);
+        for (i = 0; (i < len) && (i < 0x10); ++i) {
+            p += sprintf(p, " %02x", data[i]);
+        }
+        for (; i < 0x10; ++i) {
+            *(p++) = ' ';
+            *(p++) = ' ';
+            *(p++) = ' ';
+        }
+        *(p++) = ' ';
+        for (i = 0; (i < len) && (i < 0x10); ++i) {
+            *(p++) = isprint(data[i]) ? data[i] : '.'; 
+        }
+        *(p++) = '\0';
+        ESP_LOGD(TAG, "%s", linebuf);
+        offs += 0x10;
+        data += 0x10;
+        len -= 0x10;
+    }
+}
+
+
 // vim: set sw=4 ts=4 indk= et si:
