@@ -6,7 +6,7 @@
 
 typedef struct {
     bool is_valid;
-    double datetime;
+    uint64_t time_usec;
     float latitude, longitude, speed_kph, azimuth;
 } gps_fix_t;
 
