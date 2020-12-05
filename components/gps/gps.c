@@ -6,6 +6,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include <freertos/event_groups.h>
 #include <driver/uart.h>
 
 #undef LOG_LOCAL_LEVEL
@@ -15,9 +16,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
 #include <endian.h>
 
 static const char *TAG = "gps";
+
+void ets_update_cpu_frequency(uint32_t ticks_per_us);
+extern uint64_t g_esp_os_us;
 
 #define USE_NMEA
 //#define USE_UBX
@@ -27,7 +32,12 @@ gps_fix_t gps_fix;
 #define BUF_SIZE 128
 static QueueHandle_t uart0_queue;
 
+/* FreeRTOS event group to signal when we have set the system time */
+extern EventGroupHandle_t wifi_event_group;
+#define GPS_GOT_FIX_BIT     BIT1
+
 static uint8_t buf[BUF_SIZE + 1], *wr = buf;
+static struct timeval recv_tv;
 
 static const uint8_t * init_msgs[] = {
     "\xb5\x62\x06\x01\x03\x00\xf0\x00\x00\xfa\x0f", // disable NMEA-GGA
@@ -60,19 +70,81 @@ static const uint8_t **cur_init_msg;
 
 static void
 process_new_fix(void) {
-    ESP_LOGD(TAG, "v=%d, t=%lf, lat=%f, lng=%f, spd=%f, azm=%f", gps_fix.is_valid, gps_fix.datetime, gps_fix.latitude, gps_fix.longitude, gps_fix.speed_kph, gps_fix.azimuth);
+    ESP_LOGD(TAG, "v=%d, t=%.0lf, lat=%f, lng=%f, spd=%f, azm=%f", gps_fix.is_valid, (double)gps_fix.time_usec, gps_fix.latitude, gps_fix.longitude, gps_fix.speed_kph, gps_fix.azimuth);
     // FIXME: fire an event
     // FIXME: tune the clock
 
     lcd_gotoxy(0, 2);
-    printf("%d, %5.3f, %5.3f, %lf", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, gps_fix.datetime);
+    printf("%d, %5.3f, %5.3f, %lf", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (double)gps_fix.time_usec);
     fflush(stdout);
 }
 
 
 static void
-process_new_time(double datetime) {
-    ESP_LOGD(TAG, "new time, dt=%lf", datetime);
+process_new_time(uint64_t time_usec) {
+    static bool first_fix = true;
+
+#ifdef TIME_DRIFT_STATS
+    static int64_t drift_total = 0;
+    static int drift_n = 0;
+    static int drift_max = 0, drift_min = 0;
+#endif // TIME_DRIFT_STATS
+
+    static int current_freq = 160;
+
+    int64_t recv_usec = ((int64_t)recv_tv.tv_sec) * 1000000UL + recv_tv.tv_usec;
+    int64_t delta_usec = ((int64_t)time_usec) - recv_usec;
+
+    if (__builtin_expect(first_fix, false)) { // no time set yet
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+
+        tv.tv_sec += delta_usec / 1000000L;
+        tv.tv_usec += delta_usec % 1000000L;
+
+        if (tv.tv_usec < 0) {
+            tv.tv_usec += 1000000;
+            --tv.tv_sec;
+        }
+        else if (1000000 <= tv.tv_usec) {
+            tv.tv_usec -= 1000000;
+            ++tv.tv_sec;
+        }
+
+        settimeofday(&tv, NULL);
+        ESP_LOGD(TAG, "System time set");
+        //xEventGroupSetBits(wifi_event_group, GPS_GOT_FIX_BIT);
+        first_fix = false;
+    }
+    else { // normal operation
+        int freq;
+        if (delta_usec > 500) {
+            freq = 159;
+        }
+        else if (delta_usec < -500) {
+            freq = 161;
+        }
+        else {
+            freq = 160;
+        }
+        if (freq != current_freq) {
+            current_freq = freq;
+            ets_update_cpu_frequency(freq);
+        }
+
+#ifdef TIME_DRIFT_STATS
+        drift_total += delta_usec;
+        drift_n++;
+        if (delta_usec > drift_max) {
+            drift_max = delta_usec;
+        }
+        if (delta_usec < drift_min) {
+            drift_min = delta_usec;
+        }
+        ESP_LOGD(TAG, "new time, dt=%.0lf, drift=%.lf, avg_drift=[%d..%lf..%d], n=%d", (double)time_usec, (double)delta_usec, drift_min, (double)drift_total/drift_n, drift_max, drift_n);
+#endif // TIME_DRIFT_STATS
+
+    }
 }
 
 
@@ -112,8 +184,9 @@ got_GPRMC(char *msg) {
     if (fix.is_valid) {
         // parse the datetime
         struct tm dt;
+        double sec_frac;
         dt.tm_isdst = 0;
-        if (4 != sscanf(field[1], "%02d%02d%02d%lf", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &fix.datetime)) {
+        if (4 != sscanf(field[1], "%02d%02d%02d%lf", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &sec_frac)) {
             return false;
         }
         if (3 != sscanf(field[9], "%02d%02d%02d", &dt.tm_mday, &dt.tm_mon, &dt.tm_year)) {
@@ -121,9 +194,8 @@ got_GPRMC(char *msg) {
         }
         --dt.tm_mon;
         dt.tm_year += 100;
-        ESP_LOGD(TAG, "GPRMC time before; sec=%d, fixtime=%lf", dt.tm_sec, fix.datetime);
-        fix.datetime += timegm(&dt); // please don't comment. this whole date format is crap right from the beginning
-        ESP_LOGD(TAG, "GPRMC time after; fixtime=%f", fix.datetime);
+        sec_frac += timegm(&dt);
+        fix.time_usec = 1000000UL * sec_frac; // please don't comment. this whole date format is crap right from the beginning
 
         // parse the location
         int degree;
@@ -154,28 +226,28 @@ got_GPRMC(char *msg) {
         }
     }
     else {
-        fix.datetime = 0;
+        fix.time_usec = 0;
         fix.latitude = 0;
         fix.longitude = 0;
         fix.speed_kph = 0;
         fix.azimuth = 0;
     }
 
-    if (gps_fix.datetime != fix.datetime) {
-        process_new_time(fix.datetime);
+    if (gps_fix.time_usec != fix.time_usec) {
+        process_new_time(fix.time_usec);
     }
 
     taskENTER_CRITICAL();
     bool changed =
            (gps_fix.is_valid  != fix.is_valid)
-        || (gps_fix.datetime  != fix.datetime)
+        || (gps_fix.time_usec  != fix.time_usec)
         || (gps_fix.latitude  != fix.latitude)
         || (gps_fix.longitude != fix.longitude)
         || (gps_fix.speed_kph != fix.speed_kph)
         || (gps_fix.azimuth   != fix.azimuth);
     if (changed) {
         gps_fix.is_valid  = fix.is_valid;
-        gps_fix.datetime  = fix.datetime;
+        gps_fix.time_usec  = fix.time_usec;
         gps_fix.latitude  = fix.latitude;
         gps_fix.longitude = fix.longitude;
         gps_fix.speed_kph = fix.speed_kph;
@@ -286,16 +358,16 @@ got_NAV_TIMEUTC(const uint8_t *payload) {
         .tm_sec = sec,
         .tm_isdst = 0,
     };
-    double datetime = timegm(&dt) + nano * 1e-9;
+    uint64_t time_usec = (1000000UL * timegm(&dt)) + (nano / 1000);
 
-    if (gps_fix.datetime != datetime) {
-        process_new_time(datetime);
+    if (gps_fix.time_usec != time_usec) {
+        process_new_time(time_usec);
     }
 
     taskENTER_CRITICAL();
-    bool changed = (gps_fix.datetime != datetime);
+    bool changed = (gps_fix.time_usec != time_usec);
     if (changed) {
-        gps_fix.datetime  = datetime;
+        gps_fix.time_usec  = time_usec;
     }
     taskEXIT_CRITICAL();
     if (changed) {
@@ -496,7 +568,7 @@ uart_event_task(void *pvParameters) {
         if (xQueueReceive(uart0_queue, (void *)&event, (portTickType)portMAX_DELAY)) {
             switch (event.type) {
                 case UART_DATA:
-                    //tick_recvd = soc_get_ccount();
+                    gettimeofday(&recv_tv, NULL);
                     got_data(event.size);
                     break;
 
@@ -533,8 +605,6 @@ esp_err_t
 gps_init(void) {
     gps_fix.is_valid = false;
     cur_init_msg = init_msgs;
-    //ESP_LOGD(TAG, "_xt_tick_divisor=%u", _xt_tick_divisor);
-    // NOTE: the ccount register is reset at every systick and also when sleeping (facepalm), so it's unusable...
 
     uart_config_t uart_config = {
         .baud_rate = 9600,
