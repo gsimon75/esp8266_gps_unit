@@ -31,6 +31,9 @@ gps_fix_t gps_fix;
 
 #define BUF_SIZE 128
 static QueueHandle_t uart0_queue;
+static TimerHandle_t baud_rate_watchdog_timer;
+static int8_t baud_rate_idx;
+static int baud_rates[] = { 9600, 230400, 38400, 57600, 115200, };
 
 /* FreeRTOS event group to signal when we have set the system time */
 extern EventGroupHandle_t wifi_event_group;
@@ -62,10 +65,31 @@ static const uint8_t * init_msgs[] = {
     "\xb5\x62\x06\x01\x03\x00\x01\x21\x00\x2c\x84", // disable NAV-TIMEUTC
 #endif // !USE_UBX
 
+    // NOTE: leave the baudrate setting for the last, because we'll miss its ACK
+    //"\xb5\x62\x06\x00\x00\x00\x06\x18", // poll current port settings
+    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x80\x25\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\x8e\x95", // set port1 to 9600,8n1
+    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\x96\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\x7f\x70", // set port1 to 34800,8n1
+    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\xe1\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\xca\xa9", // set port1 to 57600,8n1
+    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\xc2\x01\x00\x03\x00\x03\x00\x00\x00\x00\x00\xac\x5e", // set port1 to 115200,8n1
+    "\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\x84\x03\x00\x03\x00\x03\x00\x00\x00\x00\x00\x70\xc8", // set port1 to 230400,8n1
     NULL
 };
 
 static const uint8_t **cur_init_msg;
+
+
+static bool
+send_ubx(const uint8_t *msg) {
+    size_t len = 8 + le16dec(msg + 4);
+    //ESP_LOGD(TAG, "Sending %d bytes", len);
+    //hexdump(msg, len);
+    int res = uart_write_bytes(UART_NUM_0, msg, len);
+    if (res != len) {
+        ESP_LOGE(TAG, "Failed to send complete message, sent=%d, len=%d", res, len);
+        return false;
+    }
+    return true;
+}
 
 
 static void
@@ -284,6 +308,13 @@ got_nmea(const uint8_t *msg, size_t len) {
         return false;
     }
 
+    xTimerReset(baud_rate_watchdog_timer, 0);
+    if (!cur_init_msg) {
+        cur_init_msg = init_msgs;
+        ESP_LOGI(TAG, "Sending init messages");
+        send_ubx(*cur_init_msg);
+    }
+
     if (!strncmp(msg, "GPRMC,", 6)) {
         got_GPRMC((char*)msg);
     }
@@ -291,18 +322,6 @@ got_nmea(const uint8_t *msg, size_t len) {
         ESP_LOGD(TAG, "NMEA: '%s'", msg);
     }
 
-    return true;
-}
-
-
-static bool
-send_ubx(const uint8_t *msg) {
-    size_t len = 8 + le16dec(msg + 4);
-    int res = uart_write_bytes(UART_NUM_0, msg, len);
-    if (res != len) {
-        ESP_LOGE(TAG, "Failed to send complete message, sent=%d, len=%d", res, len);
-        return false;
-    }
     return true;
 }
 
@@ -424,22 +443,29 @@ got_ubx(const uint8_t *msg, size_t payload_len) {
         return false;
     }
 
+    xTimerReset(baud_rate_watchdog_timer, 0);
+
     switch (msg[2]) {
         case 0x05: // ACK-*
-            if ((msg[6] == (*cur_init_msg)[2]) && (msg[7] == (*cur_init_msg)[3])) {
-                if (msg[3] != 0x01) {
-                    ESP_LOGW(TAG, "UBX ACK-NAK for %02x,%02x", msg[6], msg[7]);
-                }
-                if (cur_init_msg[1]) {
-                    ++cur_init_msg;
-                    send_ubx(*cur_init_msg);
+            if (cur_init_msg) {
+                if ((msg[6] == (*cur_init_msg)[2]) && (msg[7] == (*cur_init_msg)[3])) {
+                    if (msg[3] != 0x01) {
+                        ESP_LOGW(TAG, "UBX ACK-NAK for %02x,%02x", msg[6], msg[7]);
+                    }
+                    else {
+                        //ESP_LOGD(TAG, "UBX ACK-ACK for %02x,%02x", msg[6], msg[7]);
+                    }
+                    if (cur_init_msg[1]) {
+                        ++cur_init_msg;
+                        send_ubx(*cur_init_msg);
+                    }
+                    else {
+                        ESP_LOGI(TAG, "All init messages acknowledged");
+                    }
                 }
                 else {
-                    ESP_LOGI(TAG, "All init messages acknowledged");
+                    ESP_LOGW(TAG, "UBX ACK-* for unknown message: got=%02x,%02x, expected=%02x,%02x", msg[6], msg[7], (*cur_init_msg)[2], (*cur_init_msg)[3]);
                 }
-            }
-            else {
-                ESP_LOGW(TAG, "UBX ACK-* for unknown message: got=%02x,%02x, expected=%02x,%02x", msg[6], msg[7], (*cur_init_msg)[2], (*cur_init_msg)[3]);
             }
             break;
 
@@ -562,7 +588,6 @@ got_data(size_t available) {
 
 static void
 uart_event_task(void *pvParameters) {
-    send_ubx(*cur_init_msg);
     while (1) {
         uart_event_t event;
         if (xQueueReceive(uart0_queue, (void *)&event, (portTickType)portMAX_DELAY)) {
@@ -601,22 +626,34 @@ uart_event_task(void *pvParameters) {
     vTaskDelete(NULL);
 }
 
+static void
+try_next_baud_rate(TimerHandle_t xTimer) {
+    baud_rate_idx = (baud_rate_idx + 1) % (sizeof(baud_rates) / sizeof(baud_rates[0]));
+    ESP_LOGI(TAG, "Trying baud rate %d", baud_rates[baud_rate_idx]);
+    uart_set_baudrate(UART_NUM_0, baud_rates[baud_rate_idx]);
+}
+
 esp_err_t
 gps_init(void) {
     gps_fix.is_valid = false;
-    cur_init_msg = init_msgs;
-
+    cur_init_msg = NULL;
     uart_config_t uart_config = {
-        .baud_rate = 9600,
+        .baud_rate = 1200,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
+    baud_rate_idx = -1;
+    try_next_baud_rate(NULL);
     uart_param_config(UART_NUM_0, &uart_config);
     uart_driver_install(UART_NUM_0, UART_FIFO_LEN + 1, 0, 100, &uart0_queue, 0);
 
+    baud_rate_watchdog_timer = xTimerCreate("gps", pdMS_TO_TICKS(3000), pdTRUE, NULL, try_next_baud_rate);
     xTaskCreate(uart_event_task, "gps", 2048, NULL, 12, NULL);
+    xTimerStart(baud_rate_watchdog_timer, 0);
+
+
     return ESP_OK;
 }
 
