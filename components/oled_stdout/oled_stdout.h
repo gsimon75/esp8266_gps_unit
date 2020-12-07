@@ -11,5 +11,7 @@ void lcd_gotoxy(int col, int row);
 void lcd_clear(void);
 esp_err_t lcd_init(int port);
 
+esp_err_t lcd_qr(const uint8_t *input, ssize_t input_length);
+
 #endif // OLED_STDOUT_H
 // vim: set sw=4 ts=4 indk= et si:
