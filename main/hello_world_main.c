@@ -114,7 +114,7 @@ wifi_init_sta() {
     nvs_close(nvs_wifi);
 
     ESP_LOGI(TAG, "wifi ssid (len=%d) '%s'", ssid_len, wifi_config.sta.ssid);
-    ESP_LOGI(TAG, "wifi password (len=%d) '%s'", password_len, wifi_config.sta.password);
+    ESP_LOGI(TAG, "wifi password (len=%d)", password_len); // wifi_config.sta.password
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config) );
@@ -193,13 +193,20 @@ app_main()
     button_init();
     ssd1306_init(SSD1306_I2C, 4, 5);
     lcd_init(SSD1306_I2C);
+
+    /*
     lcd_puts(5, 1, "Hello World!");
+    lcd_gotoxy(0, 2);
+    for (int i = 0; i < 10; ++i) {
+        printf("%3d\n", i);
+    }
+    fflush(stdout);
+    */
 
-    /*lcd_gotoxy(0, 2);
-    printf("printf\nworks");
-    fflush(stdout); */
+    lcd_clear();
+    lcd_qr("https://en.wikipedia.org/wiki/ESP8266", -1);
 
-    gps_init();
+    //gps_init();
 
     /* printf("Restarting now.\n");
     fflush(stdout);
