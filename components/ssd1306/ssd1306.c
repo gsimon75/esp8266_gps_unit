@@ -1,8 +1,5 @@
 #include "ssd1306.h"
 #include <stdio.h>
-#include <math.h>
-
-#define TEST_PATTERNS 1
 
 // I2C header
 // 0x00: slave address = 0,1,1,1, 1,0,<SA0>,<R/#W> = 0x78
@@ -175,29 +172,6 @@ ssd1306_init(i2c_port_t port, int sda_io, int scl_io) {
     }
     ssd1306_set_range(port, 0x00, 0x7f, 0, 7);
     ssd1306_memset(port, 0, 128 * 8);
-
-#ifdef TEST_PATTERNS
-    // Binary pattern to page 7 (== rows 56..63)
-    ssd1306_set_range(port, 0x00, 0x7f, 7, 7);
-    for (uint16_t i = 0; i < 0x80; ++i) {
-        ssd1306_send_data_byte(port, i);
-    }
-
-    // Sine pattern to page 0..6 (== rows 0..55)
-    ssd1306_set_range(port, 0x00, 0x7f, 0, 6);
-    for (int page = 0; page <= 6; ++page) {
-        for (int i = 0; i < 0x80; ++i) {
-            int y = (int)(28 + (27 * sin(i * 3.1415926 / 64)));
-            y -= (page << 3);
-            if ((0 <= y) && (y < 8)) {
-                ssd1306_send_data_byte(port, 1 << y);
-            }
-            else {
-                ssd1306_send_data_byte(port, 0);
-            }
-        }
-    }
-#endif // TEST_PATTERNS
 
     return ESP_OK;
 }

@@ -15,7 +15,8 @@ MAKEFLAGS += -j1
 #
 ##############################################################################
 
-PROJECT_NAME := hello-world
+PROJECT_NAME := gps-unit
+CFLAGS += -DPROJECT_NAME=$(PROJECT_NAME)
 COMPONENT_EMBED_FILES :=  $(sort $(wildcard ${PROJECT_PATH}/static_data/*))
 
 CFLAGS += -Wno-pointer-sign
