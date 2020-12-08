@@ -271,7 +271,6 @@ dns_server_task(void *pvParameters) {
             dns_buf_log(&in, "Input");
             dns_buf_init_alloc(&out, in.wrpos); // estimate the output size to be the same as the input
 
-
             uint16_t id = 0;
             dns_opcode_t opcode = DNS_OPCODE_QUERY;
             dns_retcode_t retcode = DNS_RETCODE_NO_ERROR;
@@ -281,7 +280,7 @@ dns_server_task(void *pvParameters) {
             uint16_t num_authority_rrs;
             uint16_t num_additional_rrs;
 
-            do {
+            do { // while (0)
                 if (!dns_parse_u16be(&in, &id) || !dns_parse_u16be(&in, &flags)) {
                     retcode = DNS_RETCODE_FORMAT_ERROR;
                     break;
@@ -308,68 +307,81 @@ dns_server_task(void *pvParameters) {
 
                 // we need to write a header as the compression of the answers may need it
                 dns_write_u16be(&out, id);
-                dns_write_u16be(&out, DNS_FLAG_IS_RESPONSE | opcode | DNS_RETCODE_NO_ERROR);
-                dns_write_u16be(&out, 0);
+                dns_write_u16be(&out, DNS_FLAG_IS_RESPONSE | DNS_FLAG_IS_AUTHORITATIVE | opcode | DNS_RETCODE_NO_ERROR);
+                dns_write_u16be(&out, 1); // num_questions = 1
                 dns_write_u16be(&out, 0); // num_answers fixup will be injected later
                 dns_write_u16be(&out, 0);
                 dns_write_u16be(&out, 0);
                 
-                if (fn) {
-                    dns_buf_t name;
-                    dns_buf_init_alloc(&name, 256);
-                    for (int i = 0; (i < num_questions) && (retcode == DNS_RETCODE_NO_ERROR); ++i) {
-                        uint16_t type;
-                        uint16_t _class;
-
-                        name.wrpos = 0;
-
-                        if (!dns_parse_dns_name(&in, &name) || !dns_parse_u16be(&in, &type) || !dns_parse_u16be(&in, &_class)) {
-                            retcode = DNS_RETCODE_FORMAT_ERROR;
-                            break;
-                        }
-                        dns_write_u8(&name, 0); // name.data is asciiz now
-                        ESP_LOGD(TAG, "Parsed question; idx=%d, name='%s', type=%d, class=%d", i, name.data, type, _class);
-
-                        // mark position in case the policy doesn't want to send an answer
-                        size_t out_pos_before = out.wrpos;
-
-                        // write the rr header
-                        dns_write_dns_name(&out, (const char*)name.data);
-                        dns_write_u16be(&out, type);
-                        dns_write_u16be(&out, _class);
-                        size_t ttl_pos = out.wrpos;
-                        dns_write_u32be(&out, 0);    // TTL placeholder
-                        size_t rdlength_pos = out.wrpos;
-                        dns_write_u16be(&out, 0);    // rdlength placeholder
-                        size_t rdata_pos = out.wrpos;
-
-                        uint32_t ttl = 0;
-                        // the policy fn shall
-                        // - either set ttl, write rdata and return true
-                        // - or return false (and may write any junk, it'll be discarded)
-                        if (fn(&out, (const char*)name.data, type, _class, &ttl)) {
-                            ++num_answer_rrs;
-                            ESP_LOGD(TAG, "Policy wrote answer; num_answer_rrs=%d", num_answer_rrs);
-                            be32enc(out.data + ttl_pos, ttl);
-                            be16enc(out.data + rdlength_pos, out.wrpos - rdata_pos);
-                        }
-                        else {
-                            out.wrpos = out_pos_before;
-                            ESP_LOGD(TAG, "Policy skipped the question;");
-                        }
-                    }
-                    dns_buf_destroy(&name);
-                    if (retcode != DNS_RETCODE_NO_ERROR)
-                        break;
-                    if (in.rdpos != in.wrpos) {
-                        retcode = DNS_RETCODE_FORMAT_ERROR;
-                        break;
-                    }
+                if (!fn) {
+                    break;
                 }
 
+                dns_buf_t name;
+                uint16_t type;
+                uint16_t _class;
+
+                dns_buf_init_alloc(&name, 256);
+                name.wrpos = 0;
+
+                if (!dns_parse_dns_name(&in, &name) || !dns_parse_u16be(&in, &type) || !dns_parse_u16be(&in, &_class)) {
+                    retcode = DNS_RETCODE_FORMAT_ERROR;
+                    dns_buf_destroy(&name);
+                    break;
+                }
+
+                dns_write_u8(&name, 0); // name.data is asciiz now
+                ESP_LOGD(TAG, "Parsed question; name='%s', type=%d, class=%d", name.data, type, _class);
+
+                // copy the question into the answer
+                dns_write_dns_name(&out, (const char*)name.data);
+                dns_write_u16be(&out, type);
+                dns_write_u16be(&out, _class);
+
+                // mark position in case the policy doesn't want to send an answer
+                size_t out_pos_before = out.wrpos;
+
+                // write the rr header
+                dns_write_dns_name(&out, (const char*)name.data);
+                dns_write_u16be(&out, type);
+                dns_write_u16be(&out, _class);
+                size_t ttl_pos = out.wrpos;
+                dns_write_u32be(&out, 0);    // TTL placeholder
+                size_t rdlength_pos = out.wrpos;
+                dns_write_u16be(&out, 0);    // rdlength placeholder
+                size_t rdata_pos = out.wrpos;
+
+                uint32_t ttl = 0;
+                // the policy fn shall
+                // - either set ttl, write rdata and return true
+                // - or return false (and may write any junk, it'll be discarded)
+                if (fn(&out, (const char*)name.data, type, _class, &ttl)) {
+                    ++num_answer_rrs;
+                    ESP_LOGD(TAG, "Policy wrote answer; num_answer_rrs=%d", num_answer_rrs);
+                    be32enc(out.data + ttl_pos, ttl);
+                    be16enc(out.data + rdlength_pos, out.wrpos - rdata_pos);
+                }
+                else {
+                    out.wrpos = out_pos_before;
+                    ESP_LOGD(TAG, "Policy skipped the question;");
+                }
+
+                dns_buf_destroy(&name);
+                if (in.rdpos != in.wrpos) {
+                    retcode = DNS_RETCODE_FORMAT_ERROR;
+                    break;
+                }
             } while (0);
 
-            if (retcode != DNS_RETCODE_NO_ERROR) {
+            if (retcode == DNS_RETCODE_NO_ERROR) {
+                if (num_answer_rrs == 0) {
+                    be16enc(out.data + 2, DNS_FLAG_IS_RESPONSE | DNS_FLAG_IS_AUTHORITATIVE | opcode | DNS_RETCODE_NAME_ERROR);
+                }
+                else {
+                    be16enc(out.data + 6, num_answer_rrs);
+                }
+            }
+            else {
                 ESP_LOGE(TAG, "Sending error; retcode=%d", retcode);
                 out.wrpos = 0;
                 dns_write_u16be(&out, id);
@@ -378,9 +390,6 @@ dns_server_task(void *pvParameters) {
                 dns_write_u16be(&out, 0);
                 dns_write_u16be(&out, 0);
                 dns_write_u16be(&out, 0);
-            }
-            else if (out.wrpos >= 8) {
-                be16enc(out.data + 6, num_answer_rrs);
             }
 
             ESP_LOGD(TAG, "Sending response; len=%d", out.wrpos);
