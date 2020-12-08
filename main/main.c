@@ -1,11 +1,10 @@
+#include "main.h"
 #include "ssd1306.h"
-#include "qrcodegen.h"
-#include "font6x8.h"
-#include "dns_server.h"
 #include "ota.h"
 #include "oled_stdout.h"
 #include "gps.h"
 #include "admin_mode.h"
+#include "misc.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -17,29 +16,20 @@
 #include <esp_spi_flash.h>
 #include <esp_wifi.h>
 #include <esp_event_loop.h>
-#undef LOG_LOCAL_LEVEL
-#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
-#include <esp_log.h>
-
 #include <esp_tls.h>
-
 #include <nvs_flash.h>
+
+#undef LOG_LOCAL_LEVEL
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#include <esp_log.h>
 
 #include <stdio.h>
 #include <string.h>
-
-#define GPIO_BUTTON     0
-#define SSD1306_I2C I2C_NUM_0
+#include <math.h>
 
 static const char *TAG = "main";
 
-/* FreeRTOS event group to signal when we are connected*/
 EventGroupHandle_t wifi_event_group;
-
-/* The event group allows multiple bits for each event, but we only care about one event - are we connected to the AP with an IP? */
-#define WIFI_CONNECTED_BIT  BIT0
-#define GPS_GOT_FIX_BIT     BIT1
-#define OTA_CHECK_DONE_BIT  BIT2
 
 static esp_err_t
 event_handler(void *ctx, system_event_t *event) {
@@ -132,6 +122,7 @@ gpio_task_example(void *arg)
     }
 }
 
+
 static void
 button_init() {
     gpio_config_t io_conf;
@@ -150,6 +141,44 @@ button_init() {
     //gpio_isr_handler_remove(GPIO_BUTTON);
 }
 
+
+void
+screen_test(void) {
+
+    // Binary pattern to page 7 (== rows 56..63)
+    ssd1306_set_range(SSD1306_I2C, 0x00, 0x7f, 7, 7);
+    for (uint16_t i = 0; i < 0x80; ++i) {
+        ssd1306_send_data_byte(SSD1306_I2C, i);
+    }
+    // Sine pattern to page 0..6 (== rows 0..55)
+    ssd1306_set_range(SSD1306_I2C, 0x00, 0x7f, 0, 6);
+    for (int page = 0; page <= 6; ++page) {
+        for (int i = 0; i < 0x80; ++i) {
+            int y = (int)(28 + (27 * sin(i * 3.1415926 / 64)));
+            y -= (page << 3);
+            if ((0 <= y) && (y < 8)) {
+                ssd1306_send_data_byte(SSD1306_I2C, 1 << y);
+            }
+            else {
+                ssd1306_send_data_byte(SSD1306_I2C, 0);
+            }
+        }
+    }
+
+    lcd_puts(5, 1, "Hello World!");
+    lcd_gotoxy(0, 2);
+    for (int i = 0; i < 3; ++i) {
+        printf("%3d\n", i);
+    }
+    fflush(stdout);
+
+    /*
+    lcd_clear();
+    lcd_qr("https://en.wikipedia.org/wiki/ESP8266", -1);
+    */
+}
+
+
 void
 app_main()
 {
@@ -159,8 +188,8 @@ app_main()
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
     ESP_LOGI(TAG, "This is ESP8266 chip with %d CPU cores, WiFi, silicon revision %d, %dMB %s flash\n",
-            chip_info.cores, chip_info.revision, spi_flash_get_chip_size() / (1024 * 1024),
-            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+        chip_info.cores, chip_info.revision, spi_flash_get_chip_size() / (1024 * 1024),
+        (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
     //Initialize NVS
     esp_err_t ret = nvs_flash_init();
@@ -182,30 +211,16 @@ app_main()
     ssd1306_init(SSD1306_I2C, 4, 5);
     lcd_init(SSD1306_I2C);
 
-    /*
-    lcd_puts(5, 1, "Hello World!");
-    lcd_gotoxy(0, 2);
-    for (int i = 0; i < 10; ++i) {
-        printf("%3d\n", i);
-    }
-    fflush(stdout);
-    */
+    screen_test();
 
-    /*
-    lcd_clear();
-    lcd_qr("https://en.wikipedia.org/wiki/ESP8266", -1);
-    */
+    wifi_init_sta();
+    //xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
+    ESP_LOGI(TAG, "real start");
+    gps_init();
+    button_init();
 
-    //wifi_init_sta();
-    //gps_init();
-    //button_init();
-
-
-     xTaskCreate(admin_mode, "admin", 12 * 1024, NULL, 5, NULL);
-
-     xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
-     ESP_LOGI(TAG, "real start");
+    //xTaskCreate(admin_mode, "admin", 12 * 1024, NULL, 5, NULL);
 
     // esp_restart();
 }
-
+// vim: set sw=4 ts=4 indk= et si:

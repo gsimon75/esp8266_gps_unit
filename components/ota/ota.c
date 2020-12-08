@@ -1,3 +1,4 @@
+#include "main.h"
 #include "misc.h"
 
 #include <freertos/FreeRTOS.h>
@@ -20,8 +21,6 @@
 #include <string.h>
 #include <ctype.h>
 
-#define ustrchr(s, c)   ((unsigned char*)strchr((const char*)(s), c))
-
 static const char *TAG = "ota";
 
 extern const unsigned char ota_ca_start[] asm("_binary_ota_ca_der_start");
@@ -33,38 +32,19 @@ extern const unsigned char client_pkey_end[] asm("_binary_client_key_der_end");
 extern const unsigned char client_cert_start[] asm("_binary_client_crt_der_start");
 extern const unsigned char client_cert_end[] asm("_binary_client_crt_der_end");
 
-/* FreeRTOS event group to signal when we are connected*/
-extern EventGroupHandle_t wifi_event_group;
-
-/* The event group allows multiple bits for each event, but we only care about one event - are we connected to the AP with an IP? */
-#define WIFI_CONNECTED_BIT  BIT0
-#define GPS_GOT_FIX_BIT     BIT1
-#define OTA_CHECK_DONE_BIT  BIT2
 
 static const char OTA_SERVER[] = "ota.wodeewa.com";
 static const char OTA_FIRMWARE_PATH[] = "/out/";
 #ifdef MULTI_IMAGES
-/static const char OTA_FIRMWARE_DESC[] = "hello-world.ota_%d.desc"; // arg: ota partition index
+/static const char OTA_FIRMWARE_DESC[] = STR(PROJECT_NAME) ".ota_%d.desc"; // arg: ota partition index
 #else
-static const char OTA_FIRMWARE_DESC[] = "hello-world.desc"; // arg: ota partition index
+static const char OTA_FIRMWARE_DESC[] = STR(PROJECT_NAME) ".desc"; // arg: ota partition index
 #endif // MULTI_IMAGES
 
 #define BUFSIZE 512
 
 
 #define LOG_PARTITION(name, p) ESP_LOGI(TAG, name " partition: address=0x%08x, size=0x%08x, type=%d, subtype=%d, label='%s'", (p)->address, (p)->size, (p)->type, (p)->subtype, (p)->label);
-
-
-uint16_t
-fletcher16(const uint8_t *data, size_t count)
-{
-   uint16_t sum1 = 0, sum2 = 0;
-   for (size_t index = 0; index < count; ++index) {
-      sum1 = (sum1 + data[index]) % 255;
-      sum2 = (sum2 + sum1) % 255;
-   }
-   return (sum2 << 8) | sum1;
-}
 
 
 typedef struct {
@@ -196,7 +176,9 @@ https_conn_init(https_conn_context_t *ctx) {
     }
 
     ret = mbedtls_ssl_get_verify_result(&ctx->ssl);
-    if (!(xEventGroupGetBits(wifi_event_group) & GPS_GOT_FIX_BIT)) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    if (tv.tv_sec < SOURCE_DATE_EPOCH) {
         // Until we get a GPS fix, we don't know the time, so we can't check cert expiry.
         // Either we reject all expired certs or we accept all of them.
         // For the sake of being able to do OTA without GPS, *HERE* we accept them,
@@ -257,8 +239,6 @@ read_some(https_conn_context_t *ctx) {
     }
 }
 
-#define _STR(x) #x
-#define STR(x) _STR(x)
 
 bool
 send_GET_request(https_conn_context_t *ctx, const char *path, const char *file_name) {

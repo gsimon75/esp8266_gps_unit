@@ -35,10 +35,6 @@ static TimerHandle_t baud_rate_watchdog_timer;
 static int8_t baud_rate_idx;
 static int baud_rates[] = { 9600, 230400, 38400, 57600, 115200, };
 
-/* FreeRTOS event group to signal when we have set the system time */
-extern EventGroupHandle_t wifi_event_group;
-#define GPS_GOT_FIX_BIT     BIT1
-
 static uint8_t buf[BUF_SIZE + 1], *wr = buf;
 static struct timeval recv_tv;
 
@@ -81,7 +77,7 @@ static const uint8_t **cur_init_msg;
 static bool
 send_ubx(const uint8_t *msg) {
     size_t len = 8 + le16dec(msg + 4);
-    //ESP_LOGD(TAG, "Sending %d bytes", len);
+    //ESP_LOGV(TAG, "Sending %d bytes", len);
     //hexdump(msg, len);
     int res = uart_write_bytes(UART_NUM_0, msg, len);
     if (res != len) {
@@ -94,12 +90,12 @@ send_ubx(const uint8_t *msg) {
 
 static void
 process_new_fix(void) {
-    ESP_LOGD(TAG, "v=%d, t=%.0lf, lat=%f, lng=%f, spd=%f, azm=%f", gps_fix.is_valid, (double)gps_fix.time_usec, gps_fix.latitude, gps_fix.longitude, gps_fix.speed_kph, gps_fix.azimuth);
+    ESP_LOGD(TAG, "New fix; v=%d, t=%.0lf, lat=%f, lng=%f, spd=%f, azm=%f", gps_fix.is_valid, (double)(gps_fix.time_usec / 1e6), gps_fix.latitude, gps_fix.longitude, gps_fix.speed_kph, gps_fix.azimuth);
     // FIXME: fire an event
     // FIXME: tune the clock
 
     lcd_gotoxy(0, 2);
-    printf("%d, %5.3f, %5.3f, %lf", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (double)gps_fix.time_usec);
+    printf("%d, %5.3f, %5.3f, %lf", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (double)(gps_fix.time_usec / 1e6));
     fflush(stdout);
 }
 
@@ -136,8 +132,7 @@ process_new_time(uint64_t time_usec) {
         }
 
         settimeofday(&tv, NULL);
-        ESP_LOGD(TAG, "System time set");
-        //xEventGroupSetBits(wifi_event_group, GPS_GOT_FIX_BIT);
+        ESP_LOGI(TAG, "System time set to %lu", tv.tv_sec);
         first_fix = false;
     }
     else { // normal operation
@@ -197,7 +192,7 @@ got_GPRMC(char *msg) {
     char * field[13];
     gps_fix_t fix;
 
-    ESP_LOGD(TAG, "%s", msg);
+    ESP_LOGV(TAG, "%s", msg);
     if (!split_by_comma(msg, field, 12)) {
         return false;
     }
@@ -319,7 +314,7 @@ got_nmea(const uint8_t *msg, size_t len) {
         got_GPRMC((char*)msg);
     }
     else {
-        ESP_LOGD(TAG, "NMEA: '%s'", msg);
+        ESP_LOGV(TAG, "NMEA: '%s'", msg);
     }
 
     return true;
@@ -335,14 +330,15 @@ got_NAV_POSLLH(const uint8_t *payload) {
     int32_t  hMSL   = le32dec(payload + 16);
     uint32_t hAcc   = le32dec(payload + 20);
     uint32_t vAcc   = le32dec(payload + 24);
-    ESP_LOGD(TAG, "NAV-POSLLG iTOW=%u, lon=%d, lat=%d, height=%d, hMSL=%d, hAcc=%u, vAcc=%u",
+    ESP_LOGV(TAG, "NAV-POSLLG iTOW=%u, lon=%d, lat=%d, height=%d, hMSL=%d, hAcc=%u, vAcc=%u",
         iTOW, lon, lat, height, hMSL, hAcc, vAcc);
 
     float latitude = lat * 1e-7;
     float longitude = lon * 1e-7;
     taskENTER_CRITICAL();
-    bool changed = (gps_fix.latitude != latitude) || (gps_fix.longitude != longitude);
+    bool changed = !gps_fix.is_valid || (gps_fix.latitude != latitude) || (gps_fix.longitude != longitude);
     if (changed) {
+        gps_fix.is_valid = true;
         gps_fix.latitude  = latitude;
         gps_fix.longitude = longitude;
     }
@@ -365,7 +361,7 @@ got_NAV_TIMEUTC(const uint8_t *payload) {
     uint8_t  minute = payload[17];
     uint8_t  sec    = payload[18];
     uint8_t  valid  = payload[19];
-    ESP_LOGD(TAG, "NAV-TIMEUTC iTOW=%u, tAcc=%u, nano=%d, year=%u, month=%u, day=%u, hour=%u, minute=%d, sec=%u, valid=%u",
+    ESP_LOGV(TAG, "NAV-TIMEUTC iTOW=%u, tAcc=%u, nano=%d, year=%u, month=%u, day=%u, hour=%u, minute=%d, sec=%u, valid=%u",
         iTOW, tAcc, nano, year, month, day, hour, minute, sec, valid);
 
     struct tm dt = {
@@ -406,7 +402,7 @@ got_NAV_VELNED(const uint8_t *payload) {
     int32_t  heading = le32dec(payload + 24);
     uint32_t sAcc    = le32dec(payload + 28);
     uint32_t cAcc    = le32dec(payload + 32);
-    ESP_LOGD(TAG, "NAV-VELNED iTOW=%u, velN=%d, velE=%d, velD=%d, speed=%u, gSpeed=%u, heading=%d, sAcc=%u, cAcc=%u",
+    ESP_LOGV(TAG, "NAV-VELNED iTOW=%u, velN=%d, velE=%d, velD=%d, speed=%u, gSpeed=%u, heading=%d, sAcc=%u, cAcc=%u",
         iTOW, velN, velE, velD, speed, gSpeed, heading, sAcc, cAcc);
 
     float speed_kph = speed * 0.036; // cm/s to km/h
@@ -428,7 +424,7 @@ static int
 got_ubx(const uint8_t *msg, size_t payload_len) {
     void
     dump_generic(void) {
-        ESP_LOGD(TAG, "UBX: class=0x%02x, id=0x%02x, payload_len=0x%04x", msg[2], msg[3], payload_len);
+        ESP_LOGV(TAG, "UBX: class=0x%02x, id=0x%02x, payload_len=0x%04x", msg[2], msg[3], payload_len);
         hexdump(msg + 6, payload_len);
     }
 
@@ -453,7 +449,7 @@ got_ubx(const uint8_t *msg, size_t payload_len) {
                         ESP_LOGW(TAG, "UBX ACK-NAK for %02x,%02x", msg[6], msg[7]);
                     }
                     else {
-                        //ESP_LOGD(TAG, "UBX ACK-ACK for %02x,%02x", msg[6], msg[7]);
+                        //ESP_LOGV(TAG, "UBX ACK-ACK for %02x,%02x", msg[6], msg[7]);
                     }
                     if (cur_init_msg[1]) {
                         ++cur_init_msg;
@@ -512,7 +508,7 @@ got_data(size_t available) {
         }
 
         // read some
-        //ESP_LOGD(TAG, "Reading max 0x%x to 0x%x", rdlen, wr - buf);
+        //ESP_LOGV(TAG, "Reading max 0x%x to 0x%x", rdlen, wr - buf);
         uart_read_bytes(UART_NUM_0, wr, rdlen, portMAX_DELAY);
         wr += rdlen;
         available -= rdlen;
@@ -521,7 +517,7 @@ got_data(size_t available) {
         // process it
         uint8_t *rd = buf;
         while (rd < wr) {
-            //ESP_LOGD(TAG, "Msg loop, wr=0x%x, rd=0x%x", wr - buf, rd - buf);
+            //ESP_LOGV(TAG, "Msg loop, wr=0x%x, rd=0x%x", wr - buf, rd - buf);
 
             if (rd[0] == '$') { // nmea message at the beginning (may be incomplete/invalid)
                 uint8_t *pos_crlf = memmem(rd, wr - rd, "\r\n", 2);
@@ -571,14 +567,14 @@ got_data(size_t available) {
         } // while (rd < wr)
 
         if (rd < wr) {
-            //ESP_LOGD(TAG, "Keeping incomplete 0x%x bytes", wr - rd);
+            //ESP_LOGV(TAG, "Keeping incomplete 0x%x bytes", wr - rd);
             if (rd != buf) {
                 memmove(buf, rd, wr - rd);
                 wr = buf + (wr - rd);
             }
         }
         else {
-            //ESP_LOGD(TAG, "All processed");
+            //ESP_LOGV(TAG, "All processed");
             wr = buf;
         }
 
@@ -614,7 +610,7 @@ uart_event_task(void *pvParameters) {
                     break;
 
                 case UART_FRAME_ERR:
-                    ESP_LOGE(TAG, "Frame error");
+                    //ESP_LOGE(TAG, "Frame error");
                     break;
 
                 default:

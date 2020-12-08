@@ -1,12 +1,13 @@
+#include "main.h"
 #include "admin_mode.h"
 #include "oled_stdout.h"
 #include "dns_server.h"
-
 #include "misc.h"
 
 #undef LOG_LOCAL_LEVEL
-#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
+#include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 
 #include <esp_log.h>
@@ -24,13 +25,6 @@ static const char *TAG = "admin";
 static const char AP_SSID[] = "yadda";
 static const char AP_PASSWORD[] = "yaddaboo";
 
-/* FreeRTOS event group to signal when we are connected*/
-extern EventGroupHandle_t wifi_event_group;
-
-/* The event group allows multiple bits for each event, but we only care about one event - are we connected to the AP with an IP? */
-#define WIFI_CONNECTED_BIT  BIT0
-#define GPS_GOT_FIX_BIT     BIT1
-#define OTA_CHECK_DONE_BIT  BIT2
 
 /******************************************************************************
  * Show some info on the display
@@ -211,7 +205,7 @@ event_handler(void *ctx, system_event_t *event) {
 
 static void
 wifi_init_ap(void) {
-    //ESP_ERROR_CHECK(esp_wifi_restore());
+    ESP_ERROR_CHECK(esp_wifi_restore());
     esp_event_loop_set_cb(event_handler, NULL);
 
     tcpip_adapter_ip_info_t ap_info = {
