@@ -16,6 +16,7 @@ MAKEFLAGS += -j1
 ##############################################################################
 
 PROJECT_NAME := hello-world
+COMPONENT_EMBED_FILES :=  $(sort $(wildcard ${PROJECT_PATH}/static_data/*))
 
 CFLAGS += -Wno-pointer-sign
 

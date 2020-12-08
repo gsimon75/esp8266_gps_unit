@@ -5,6 +5,7 @@
 #include "ota.h"
 #include "oled_stdout.h"
 #include "gps.h"
+#include "admin_mode.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -42,7 +43,6 @@ EventGroupHandle_t wifi_event_group;
 
 static esp_err_t
 event_handler(void *ctx, system_event_t *event) {
-    /* For accessing reason codes in case of disconnection */
     system_event_info_t *info = &event->event_info;
     
     switch(event->event_id) {
@@ -52,32 +52,16 @@ event_handler(void *ctx, system_event_t *event) {
         }
 
         case SYSTEM_EVENT_STA_GOT_IP: {
-            ESP_LOGI(TAG, "got ip:%s",
-                    ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip));
+            ESP_LOGI(TAG, "STA_GOT_IP %s", ip4addr_ntoa(&info->got_ip.ip_info.ip));
             xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
-            xTaskCreate(check_ota, "ota", 12 * 1024, NULL, 5, NULL);
-            break;
-        }
-
-        case SYSTEM_EVENT_AP_STACONNECTED: {
-            ESP_LOGI(TAG, "station:"MACSTR" join, AID=%d",
-                    MAC2STR(event->event_info.sta_connected.mac),
-                    event->event_info.sta_connected.aid);
-            break;
-        }
-
-        case SYSTEM_EVENT_AP_STADISCONNECTED: {
-            ESP_LOGI(TAG, "station:"MACSTR"leave, AID=%d",
-                    MAC2STR(event->event_info.sta_disconnected.mac),
-                    event->event_info.sta_disconnected.aid);
+            //xTaskCreate(check_ota, "ota", 12 * 1024, NULL, 5, NULL);
             break;
         }
 
         case SYSTEM_EVENT_STA_DISCONNECTED: {
-            ESP_LOGE(TAG, "Disconnect reason : %d", info->disconnected.reason);
+            ESP_LOGE(TAG, "STA_DISCONNECTED %d", info->disconnected.reason);
             if (info->disconnected.reason == WIFI_REASON_BASIC_RATE_NOT_SUPPORT) {
-                /*Switch to 802.11 bgn mode */
-                esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCAL_11B | WIFI_PROTOCAL_11G | WIFI_PROTOCAL_11N);
+                esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCAL_11B | WIFI_PROTOCAL_11G | WIFI_PROTOCAL_11N); // Switch to 802.11 bgn mode
             }
             esp_wifi_connect();
             xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
@@ -90,20 +74,14 @@ event_handler(void *ctx, system_event_t *event) {
     return ESP_OK;
 }
 
-void
-wifi_init_sta() {
-    wifi_event_group = xEventGroupCreate();
-
-    tcpip_adapter_init();
-    ESP_ERROR_CHECK(esp_event_loop_init(event_handler, NULL) );
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+static void
+wifi_init_sta(void) {
+    ESP_ERROR_CHECK(esp_wifi_restore());
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    esp_event_loop_set_cb(event_handler, NULL);
 
     nvs_handle nvs_wifi;
-    wifi_config_t wifi_config;
-    memset(&wifi_config, 0, sizeof(wifi_config_t));
+    wifi_config_t wifi_config = { };
 
     size_t ssid_len = sizeof(wifi_config.sta.ssid);
     size_t password_len = sizeof(wifi_config.sta.password);
@@ -116,12 +94,19 @@ wifi_init_sta() {
     ESP_LOGI(TAG, "wifi ssid (len=%d) '%s'", ssid_len, wifi_config.sta.ssid);
     ESP_LOGI(TAG, "wifi password (len=%d)", password_len); // wifi_config.sta.password
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_LOGI(TAG, "wifi_init_sta finished.");
 }
+
+static void
+wifi_stop(void) {
+    esp_event_loop_set_cb(NULL, NULL);
+    ESP_ERROR_CHECK(esp_wifi_stop());
+}
+
 
 // ------------------------------------------------------------------------------
 
@@ -185,12 +170,14 @@ app_main()
     }
     ESP_ERROR_CHECK(ret);
 
-    //wifi_init_sta();
-    //xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
+    wifi_event_group = xEventGroupCreate();
 
-    ESP_LOGI(TAG, "real start");
+    ESP_ERROR_CHECK(esp_event_loop_init(NULL, NULL));
+    tcpip_adapter_init();
 
-    button_init();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
     ssd1306_init(SSD1306_I2C, 4, 5);
     lcd_init(SSD1306_I2C);
 
@@ -203,13 +190,21 @@ app_main()
     fflush(stdout);
     */
 
+    /*
     lcd_clear();
     lcd_qr("https://en.wikipedia.org/wiki/ESP8266", -1);
+    */
 
+    //wifi_init_sta();
     //gps_init();
+    //button_init();
 
-    /* printf("Restarting now.\n");
-    fflush(stdout);
-    esp_restart(); */
+
+     xTaskCreate(admin_mode, "admin", 12 * 1024, NULL, 5, NULL);
+
+     xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
+     ESP_LOGI(TAG, "real start");
+
+    // esp_restart();
 }
 
