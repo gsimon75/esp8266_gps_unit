@@ -154,17 +154,13 @@ bool dns_parse_u8(dns_buf_t *self, uint8_t *dest);
 void dns_write_u8(dns_buf_t *self, uint8_t src);
 void dns_write_u8s(dns_buf_t *self, const uint8_t *src, size_t src_length);
 
-bool dns_parse_u16n(dns_buf_t *self, uint16_t *dest);
 bool dns_parse_u16le(dns_buf_t *self, uint16_t *dest);
 bool dns_parse_u16be(dns_buf_t *self, uint16_t *dest);
-void dns_write_u16n(dns_buf_t *self, uint16_t src);
 void dns_write_u16le(dns_buf_t *self, uint16_t src);
 void dns_write_u16be(dns_buf_t *self, uint16_t src);
 
-bool dns_parse_u32n(dns_buf_t *self, uint32_t *dest);
 bool dns_parse_u32le(dns_buf_t *self, uint32_t *dest);
 bool dns_parse_u32be(dns_buf_t *self, uint32_t *dest);
-void dns_write_u32n(dns_buf_t *self, uint32_t src);
 void dns_write_u32le(dns_buf_t *self, uint32_t src);
 void dns_write_u32be(dns_buf_t *self, uint32_t src);
 

@@ -1,43 +1,10 @@
 #include "dns_server.h"
 
 #include <string.h>
-#include <machine/endian.h>
+#include <endian.h>
 
 static const char *TAG = "dns_server";
 
-#if _BYTE_ORDER == _BIG_ENDIAN
-
-#define htobe16(x)  (x)
-#define be16toh(x)  (x)
-#define htobe32(x)  (x)
-#define be32toh(x)  (x)
-#define htobe64(x)  (x)
-#define be64toh(x)  (x)
-
-#define htole16(x)  __builtin_bswap16(x)
-#define le16toh(x)  __builtin_bswap16(x)
-#define htole32(x)  __builtin_bswap32(x)
-#define le32toh(x)  __builtin_bswap32(x)
-#define htole64(x)  __builtin_bswap64(x)
-#define le64toh(x)  __builtin_bswap64(x)
-
-#else
-
-#define htobe16(x)  __builtin_bswap16(x) 
-#define be16toh(x)  __builtin_bswap16(x) 
-#define htobe32(x)  __builtin_bswap32(x) 
-#define be32toh(x)  __builtin_bswap32(x) 
-#define htobe64(x)  __builtin_bswap64(x) 
-#define be64toh(x)  __builtin_bswap64(x) 
-
-#define htole16(x)  (x)
-#define le16toh(x)  (x)
-#define htole32(x)  (x)
-#define le32toh(x)  (x)
-#define htole64(x)  (x)
-#define le64toh(x)  (x)
-
-#endif
 
 void
 dns_buf_init_alloc(dns_buf_t *self, size_t alloc_length) {
@@ -130,21 +97,11 @@ dns_write_u8s(dns_buf_t *self, const uint8_t *src, size_t src_length) {
 
 
 bool
-dns_parse_u16n(dns_buf_t *self, uint16_t *dest) {
-    if (dns_buf_available(self) < 2)
-        return false;
-
-    *dest = ntohs(*(uint16_t*)(self->data + self->rdpos));
-    self->rdpos += 2;
-    return true;
-}
-
-bool
 dns_parse_u16le(dns_buf_t *self, uint16_t *dest) {
     if (dns_buf_available(self) < 2)
         return false;
 
-    *dest = le16toh(*(uint16_t*)(self->data + self->rdpos));
+    *dest = le16dec(self->data + self->rdpos);
     self->rdpos += 2;
     return true;
 }
@@ -154,49 +111,32 @@ dns_parse_u16be(dns_buf_t *self, uint16_t *dest) {
     if (dns_buf_available(self) < 2)
         return false;
 
-    *dest = be16toh(*(uint16_t*)(self->data + self->rdpos));
+    *dest = be16dec(self->data + self->rdpos);
     self->rdpos += 2;
     return true;
 }
 
 void
-dns_write_u16n(dns_buf_t *self, uint16_t src) {
-    dns_buf_grow(self, 2);
-    *(uint16_t*)(self->data + self->wrpos) = htons(src);
-    self->wrpos += 2;
-}
-
-void
 dns_write_u16le(dns_buf_t *self, uint16_t src) {
     dns_buf_grow(self, 2);
-    *(uint16_t*)(self->data + self->wrpos) = htole16(src);
+    le16enc(self->data + self->wrpos, src);
     self->wrpos += 2;
 }
 
 void
 dns_write_u16be(dns_buf_t *self, uint16_t src) {
     dns_buf_grow(self, 2);
-    *(uint16_t*)(self->data + self->wrpos) = htobe16(src);
+    be16enc(self->data + self->wrpos, src);
     self->wrpos += 2;
 }
 
-
-bool
-dns_parse_u32n(dns_buf_t *self, uint32_t *dest) {
-    if (dns_buf_available(self) < 4)
-        return false;
-
-    *dest = ntohl(*(uint32_t*)(self->data + self->rdpos));
-    self->rdpos += 4;
-    return true;
-}
 
 bool
 dns_parse_u32le(dns_buf_t *self, uint32_t *dest) {
     if (dns_buf_available(self) < 4)
         return false;
 
-    *dest = le32toh(*(uint32_t*)(self->data + self->rdpos));
+    *dest = le32dec(self->data + self->rdpos);
     self->rdpos += 4;
     return true;
 }
@@ -206,29 +146,22 @@ dns_parse_u32be(dns_buf_t *self, uint32_t *dest) {
     if (dns_buf_available(self) < 4)
         return false;
 
-    *dest = be32toh(*(uint32_t*)(self->data + self->rdpos));
+    *dest = be32dec(self->data + self->rdpos);
     self->rdpos += 4;
     return true;
 }
 
 void
-dns_write_u32n(dns_buf_t *self, uint32_t src) {
-    dns_buf_grow(self, 4);
-    *(uint32_t*)(self->data + self->wrpos) = htonl(src);
-    self->wrpos += 4;
-}
-
-void
 dns_write_u32le(dns_buf_t *self, uint32_t src) {
     dns_buf_grow(self, 4);
-    *(uint32_t*)(self->data + self->wrpos) = htole32(src);
+    le32enc(self->data + self->wrpos, src);
     self->wrpos += 4;
 }
 
 void
 dns_write_u32be(dns_buf_t *self, uint32_t src) {
     dns_buf_grow(self, 4);
-    *(uint32_t*)(self->data + self->wrpos) = htobe32(src);
+    be32enc(self->data + self->wrpos, src);
     self->wrpos += 4;
 }
 
@@ -349,7 +282,7 @@ dns_server_task(void *pvParameters) {
             uint16_t num_additional_rrs;
 
             do {
-                if (!dns_parse_u16n(&in, &id) || !dns_parse_u16n(&in, &flags)) {
+                if (!dns_parse_u16be(&in, &id) || !dns_parse_u16be(&in, &flags)) {
                     retcode = DNS_RETCODE_FORMAT_ERROR;
                     break;
                 }
@@ -360,13 +293,13 @@ dns_server_task(void *pvParameters) {
                 }
 
                 if (   (flags & DNS_FLAG_IS_RESPONSE)
-                    || !dns_parse_u16n(&in, &num_questions)
+                    || !dns_parse_u16be(&in, &num_questions)
                     || (num_questions == 0)
-                    || !dns_parse_u16n(&in, &num_answer_rrs)
+                    || !dns_parse_u16be(&in, &num_answer_rrs)
                     || (num_answer_rrs != 0)
-                    || !dns_parse_u16n(&in, &num_authority_rrs)
+                    || !dns_parse_u16be(&in, &num_authority_rrs)
                     || (num_authority_rrs != 0)
-                    || !dns_parse_u16n(&in, &num_additional_rrs)
+                    || !dns_parse_u16be(&in, &num_additional_rrs)
                    ) {
                     retcode = DNS_RETCODE_FORMAT_ERROR;
                     break;
@@ -374,12 +307,12 @@ dns_server_task(void *pvParameters) {
                 ESP_LOGD(TAG, "Parsed req header; id=0x%04x, flags=0x%04x, opcode=%d, num_questions=%d, num_additional_rrs=%d", id, flags, opcode, num_questions, num_additional_rrs);
 
                 // we need to write a header as the compression of the answers may need it
-                dns_write_u16n(&out, id);
-                dns_write_u16n(&out, DNS_FLAG_IS_RESPONSE | opcode | DNS_RETCODE_NO_ERROR);
-                dns_write_u16n(&out, 0);
-                dns_write_u16n(&out, 0); // num_answers fixup will be injected later
-                dns_write_u16n(&out, 0);
-                dns_write_u16n(&out, 0);
+                dns_write_u16be(&out, id);
+                dns_write_u16be(&out, DNS_FLAG_IS_RESPONSE | opcode | DNS_RETCODE_NO_ERROR);
+                dns_write_u16be(&out, 0);
+                dns_write_u16be(&out, 0); // num_answers fixup will be injected later
+                dns_write_u16be(&out, 0);
+                dns_write_u16be(&out, 0);
                 
                 if (fn) {
                     dns_buf_t name;
@@ -390,7 +323,7 @@ dns_server_task(void *pvParameters) {
 
                         name.wrpos = 0;
 
-                        if (!dns_parse_dns_name(&in, &name) || !dns_parse_u16n(&in, &type) || !dns_parse_u16n(&in, &_class)) {
+                        if (!dns_parse_dns_name(&in, &name) || !dns_parse_u16be(&in, &type) || !dns_parse_u16be(&in, &_class)) {
                             retcode = DNS_RETCODE_FORMAT_ERROR;
                             break;
                         }
@@ -402,12 +335,12 @@ dns_server_task(void *pvParameters) {
 
                         // write the rr header
                         dns_write_dns_name(&out, (const char*)name.data);
-                        dns_write_u16n(&out, type);
-                        dns_write_u16n(&out, _class);
+                        dns_write_u16be(&out, type);
+                        dns_write_u16be(&out, _class);
                         size_t ttl_pos = out.wrpos;
-                        dns_write_u32n(&out, 0);    // TTL placeholder
+                        dns_write_u32be(&out, 0);    // TTL placeholder
                         size_t rdlength_pos = out.wrpos;
-                        dns_write_u16n(&out, 0);    // rdlength placeholder
+                        dns_write_u16be(&out, 0);    // rdlength placeholder
                         size_t rdata_pos = out.wrpos;
 
                         uint32_t ttl = 0;
@@ -417,8 +350,8 @@ dns_server_task(void *pvParameters) {
                         if (fn(&out, (const char*)name.data, type, _class, &ttl)) {
                             ++num_answer_rrs;
                             ESP_LOGD(TAG, "Policy wrote answer; num_answer_rrs=%d", num_answer_rrs);
-                            *(uint32_t*)(out.data + ttl_pos) = htonl(ttl);
-                            *(uint16_t*)(out.data + rdlength_pos) = htons(out.wrpos - rdata_pos);
+                            be32enc(out.data + ttl_pos, ttl);
+                            be16enc(out.data + rdlength_pos, out.wrpos - rdata_pos);
                         }
                         else {
                             out.wrpos = out_pos_before;
@@ -439,15 +372,15 @@ dns_server_task(void *pvParameters) {
             if (retcode != DNS_RETCODE_NO_ERROR) {
                 ESP_LOGE(TAG, "Sending error; retcode=%d", retcode);
                 out.wrpos = 0;
-                dns_write_u16n(&out, id);
-                dns_write_u16n(&out, DNS_FLAG_IS_RESPONSE | opcode | DNS_FLAG_IS_AUTHORITATIVE | retcode);
-                dns_write_u16n(&out, 0);
-                dns_write_u16n(&out, 0);
-                dns_write_u16n(&out, 0);
-                dns_write_u16n(&out, 0);
+                dns_write_u16be(&out, id);
+                dns_write_u16be(&out, DNS_FLAG_IS_RESPONSE | opcode | DNS_FLAG_IS_AUTHORITATIVE | retcode);
+                dns_write_u16be(&out, 0);
+                dns_write_u16be(&out, 0);
+                dns_write_u16be(&out, 0);
+                dns_write_u16be(&out, 0);
             }
             else if (out.wrpos >= 8) {
-                *(uint16_t*)(out.data + 6) = htons(num_answer_rrs);
+                be16enc(out.data + 6, num_answer_rrs);
             }
 
             ESP_LOGD(TAG, "Sending response; len=%d", out.wrpos);
