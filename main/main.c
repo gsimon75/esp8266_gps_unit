@@ -123,16 +123,32 @@ gpio_debounce_expired(TimerHandle_t xTimer) {
     }
 }
 
+static TaskHandle_t admin_task = NULL;
 
 static void
-gpio_task_example(void *arg)
+gpio_process_task(void *arg)
 {
     while (true) {
         uint8_t io_num;
-        if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
-            ESP_LOGI(TAG, "GPIO[%d]=%d", io_num & 0x7f, io_num & 0x80);
+        if (!xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+            break;
+        }
+        ESP_LOGI(TAG, "GPIO[%d]=%d", io_num & 0x7f, io_num & 0x80);
+        switch (io_num) {
+            case GPIO_BUTTON: {
+                if (admin_task && (eTaskGetState(admin_task) < eDeleted)) {
+                    break;
+                }
+                ESP_LOGI(TAG, "Entering admin mode");
+                // TODO: stop normal operation
+                wifi_stop();
+                xTaskCreate(admin_mode, "admin", 12 * 1024, NULL, 5, &admin_task);
+                break;
+            }
         }
     }
+    ESP_LOGE(TAG, "GPIO queue error");
+    vTaskDelete(NULL);
 }
 
 
@@ -159,7 +175,7 @@ gpio_debouncer_remove(int gpio_num) {
 static void
 button_init() {
     gpio_evt_queue = xQueueCreate(GPIO_NUM_MAX, sizeof(uint8_t));
-    xTaskCreate(gpio_task_example, "gpio", 2048, NULL, 10, NULL);
+    xTaskCreate(gpio_process_task, "gpio", 2048, NULL, 10, NULL);
     gpio_install_isr_service(0);
 
     gpio_config_t io_conf = {
@@ -251,7 +267,6 @@ app_main()
     gps_init();
     button_init();
 
-    //xTaskCreate(admin_mode, "admin", 12 * 1024, NULL, 5, NULL);
 
     // esp_restart();
 }
