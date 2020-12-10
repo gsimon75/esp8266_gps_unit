@@ -90,12 +90,12 @@ send_ubx(const uint8_t *msg) {
 
 static void
 process_new_fix(void) {
-    ESP_LOGD(TAG, "New fix; v=%d, t=%.0lf, lat=%f, lng=%f, spd=%f, azm=%f", gps_fix.is_valid, (double)(gps_fix.time_usec / 1e6), gps_fix.latitude, gps_fix.longitude, gps_fix.speed_kph, gps_fix.azimuth);
+    ESP_LOGD(TAG, "New fix; v=%d, t=%lu, lat=%f, lng=%f, spd=%f, azm=%f", gps_fix.is_valid, (unsigned long)(gps_fix.time_usec / 1e6), gps_fix.latitude, gps_fix.longitude, gps_fix.speed_kph, gps_fix.azimuth);
     // FIXME: fire an event
     // FIXME: tune the clock
 
     lcd_gotoxy(0, 2);
-    printf("%d, %5.3f, %5.3f, %lf", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (double)(gps_fix.time_usec / 1e6));
+    printf("%d, %5.3f, %5.3f, %lu", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (unsigned long)(gps_fix.time_usec / 1e6));
     fflush(stdout);
 }
 
@@ -434,7 +434,7 @@ got_ubx(const uint8_t *msg, size_t payload_len) {
            ck_b = ck_b + ck_a;
     }
     if ((msg[payload_len + 6] != ck_a) || (msg[payload_len + 7] != ck_b)) {
-        printf("UBX checksum error: is=[%02x, %02x], shouldbe=[%02x, %02x]", msg[payload_len + 6], msg[payload_len + 7], ck_a, ck_b);
+        ESP_LOGW(TAG, "UBX checksum error: is=[%02x, %02x], shouldbe=[%02x, %02x]", msg[payload_len + 6], msg[payload_len + 7], ck_a, ck_b);
         dump_generic();
         return false;
     }

@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #define HTTPD_411 "411 Length Required"
 #define HTTPD_413 "413 Payload Too Large"
@@ -162,6 +163,87 @@ httpd_read_short_body(httpd_req_t *req, char* buf, size_t buflen) {
     return true;
 }
 
+static bool
+skip_white(const unsigned char **p) {
+    while (isspace(**p)) ++*p;
+    return **p;
+}
+
+// get an attribute of a one-level json object
+// ugly as hell, but i don't want a full json parser with all the dynamic allocations
+static bool
+get_body_field(const unsigned char *p, const char *fieldname, char *dest, size_t destlen) {
+    // sorry for the dense style, i don't want to stretch this junk to fifteen pages
+    if (!skip_white(&p)) return false;
+    if (*(p++) != '{') return false;
+
+    while (1) {
+        // find the beginning of the key
+        if (!skip_white(&p)) return false;
+        if (*(p++) != '"') return false;
+        if (*p == '"') return false;
+        const unsigned char *key = p++;
+
+        // find the end of the key
+        while (*p && (*p != '"')) ++p;
+        if (!*p) return false;
+        int keylen = p - key;
+
+        // find the beginning of the value
+        ++p;
+        if (!skip_white(&p)) return false;
+        if (*(p++) != ':') return false;
+        if (!skip_white(&p)) return false;
+        const unsigned char *value = p++;
+
+        // find the end of the value
+        if (*p == '"') {
+            ++p;
+            while (*p) {
+                if (*p == '"') {
+                    ++p;
+                    break;
+                }
+                else if (*p == '\\') {
+                    switch (p[1]) {
+                        case 'u':
+                        if (!p[2] || !p[3] || !p[4] || !p[5]) return false;
+                        p += 6;
+                        continue;
+
+                        case 'x':
+                        if (!p[2] || !p[3]) return false;
+                        p += 4;
+                        continue;
+                    }
+                    p += 2;
+                    continue;
+                }
+                ++p;
+            }
+        }
+        else {
+            while (*p && !isspace(*p) && (*p != ',') && (*p != '}')) ++p;
+        }
+        size_t valuelen = p - value;
+
+        // check if we are looking for this key-value pair or not
+        if ((!strncmp(fieldname, key, keylen) && !fieldname[keylen])) {
+            --destlen; // reserve space for the trailing zero
+            if (valuelen > destlen) valuelen = destlen;
+            memcpy(dest, value, valuelen);
+            dest[valuelen] = '\0';
+            return true;
+        }
+
+        // find comma or closing curly
+        if (!skip_white(&p)) return false;
+        if (*p == '}') return false; // end of object
+        ++p;
+    }
+}
+
+
 /******************************************************************************
  * HTTPS Server methods
  */
@@ -249,12 +331,16 @@ httpd_uri_t uri_get_wifi_ssids = {
 static esp_err_t
 http_post_wifi_ssid(httpd_req_t *req) {
     ESP_LOGI(TAG, "POST /rest/wifi/ssid");
-    char body[65];
+    char body[65], value[32];
     if (!httpd_read_short_body(req, body, sizeof(body))) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
     // D (54662) admin: Request body '{"ssid":"charlie"}'
+    if (!get_body_field(body, "ssid", value, sizeof(value))) {
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+    ESP_LOGD(TAG, "Received value '%s'", value);
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -270,12 +356,16 @@ httpd_uri_t uri_post_wifi_ssid = {
 static esp_err_t
 http_post_wifi_password(httpd_req_t *req) {
     ESP_LOGI(TAG, "POST /rest/wifi/password");
-    char body[65];
+    char body[65], value[32];
     if (!httpd_read_short_body(req, body, sizeof(body))) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
     // D (108984) admin: Request body '{"password":"qwer"}'
+    if (!get_body_field(body, "password", value, sizeof(value))) {
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+    ESP_LOGD(TAG, "Received value '%s'", value);
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -366,12 +456,16 @@ httpd_uri_t uri_post_ssl_cacert = {
 static esp_err_t
 http_post_ota_url(httpd_req_t *req) {
     ESP_LOGI(TAG, "POST /rest/ota/url");
-    char body[65];
+    char body[128], value[128];
     if (!httpd_read_short_body(req, body, sizeof(body))) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
     // D (289555) admin: Request body '{"ota_url":"https://ota.wodeewa.com/out/gps-unit.desc"}'
+    if (!get_body_field(body, "ota_url", value, sizeof(value))) {
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+    ESP_LOGD(TAG, "Received value '%s'", value);
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -387,12 +481,16 @@ httpd_uri_t uri_post_ota_url = {
 static esp_err_t
 http_post_server_url(httpd_req_t *req) {
     ESP_LOGI(TAG, "POST /rest/server/url");
-    char body[65];
+    char body[128], value[128];
     if (!httpd_read_short_body(req, body, sizeof(body))) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
     // D (369076) admin: Request body '{"data_url":"https://alpha.wodeewa.com/gps-reports"}'
+    if (!get_body_field(body, "data_url", value, sizeof(value))) {
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+    ESP_LOGD(TAG, "Received value '%s'", value);
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -408,12 +506,16 @@ httpd_uri_t uri_post_server_url = {
 static esp_err_t
 http_post_server_time_threshold(httpd_req_t *req) {
     ESP_LOGI(TAG, "POST /rest/server/time_threshold");
-    char body[65];
+    char body[65], value[32];
     if (!httpd_read_short_body(req, body, sizeof(body))) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
     // D (318487) admin: Request body '{"data_time_threshold":30}'
+    if (!get_body_field(body, "data_time_threshold", value, sizeof(value))) {
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+    ESP_LOGD(TAG, "Received value '%s'", value);
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -429,12 +531,16 @@ httpd_uri_t uri_post_server_time_threshold = {
 static esp_err_t
 http_post_server_distance_threshold(httpd_req_t *req) {
     ESP_LOGI(TAG, "POST /rest/server/distance_threshold");
-    char body[65];
+    char body[65], value[32];
     if (!httpd_read_short_body(req, body, sizeof(body))) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
     // D (345347) admin: Request body '{"data_distance_threshold":100}'
+    if (!get_body_field(body, "data_distance_threshold", value, sizeof(value))) {
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+    ESP_LOGD(TAG, "Received value '%s'", value);
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -523,9 +629,14 @@ event_handler(void *ctx, system_event_t *event) {
     return ESP_OK;
 }
 
-static void
+
+static bool
 wifi_init_ap(void) {
-    ESP_ERROR_CHECK(esp_wifi_restore());
+    esp_err_t res = esp_wifi_restore();
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "Wifi restore failed: %d", res);
+    }
+
     esp_event_loop_set_cb(event_handler, NULL);
 
     tcpip_adapter_ip_info_t ap_info = {
@@ -533,9 +644,20 @@ wifi_init_ap(void) {
         .netmask =  { .addr = htonl(0xff000000) },  // 255.0.0.0
         .gw =       { .addr = htonl(0x0a000001) },  // 10.0.0.1
     };
-    ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
-    ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &ap_info));
-    ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
+
+    tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP);
+    res = tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &ap_info);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Could not set AP ip info");
+        printf("AP setup failed\n");
+        return false;
+    }
+    res = tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Could not start dhcps");
+        printf("DHCPs start failed\n");
+        return false;
+    }
 
     wifi_config_t wifi_config = { 0 };
 
@@ -548,7 +670,7 @@ wifi_init_ap(void) {
     rndbuf[1] = esp_random();
     esp_base64_encode(rndbuf, 6, AP_PASSWORD, sizeof(AP_PASSWORD));
 
-    ESP_LOGI(TAG, "SSID=%s, password=%s", AP_SSID, AP_PASSWORD);
+    ESP_LOGI(TAG, "Ephemeral SSID=%s, password=%s", AP_SSID, AP_PASSWORD);
 
     strncpy(wifi_config.ap.ssid, AP_SSID, sizeof(wifi_config.ap.ssid));
     wifi_config.ap.ssid_len = strlen(AP_SSID);
@@ -556,27 +678,43 @@ wifi_init_ap(void) {
     wifi_config.ap.max_connection = 4;
     wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    res = esp_wifi_set_mode(WIFI_MODE_AP);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot set WiFi AP mode: %d", res);
+        printf("AP mode error\n");
+        return false;
+    }
 
-    ESP_LOGI(TAG, "wifi_init_ap finished.");
+    res = esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot configure WiFi AP: %d", res);
+        printf("AP config failed\n");
+        return false;
+    }
+
+    res = esp_wifi_start();
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot start WiFi AP: %d", res);
+        printf("AP start failed\n");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "AP started");
+    return true;
 }
 
-static void
+
+/*static void
 wifi_stop(void) {
     ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
     esp_event_loop_set_cb(NULL, NULL);
     ESP_ERROR_CHECK(esp_wifi_stop());
-}
+}*/
 
 
 void
-admin_mode(void * pvParameters __attribute__((unused))) {
+admin_mode_start(void) {
     wifi_init_ap();
-    xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
-    wifi_stop();
-    vTaskDelete(NULL);
 }
 
 // vim: set sw=4 ts=4 indk= et si:
