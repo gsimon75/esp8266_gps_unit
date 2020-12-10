@@ -29,7 +29,7 @@
 
 static const char *TAG = "main";
 
-EventGroupHandle_t wifi_event_group;
+EventGroupHandle_t main_event_group;
 
 static esp_err_t
 event_handler(void *ctx, system_event_t *event) {
@@ -43,7 +43,7 @@ event_handler(void *ctx, system_event_t *event) {
 
         case SYSTEM_EVENT_STA_GOT_IP: {
             ESP_LOGI(TAG, "STA_GOT_IP %s", ip4addr_ntoa(&info->got_ip.ip_info.ip));
-            xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
+            xEventGroupSetBits(main_event_group, WIFI_CONNECTED_BIT);
             //xTaskCreate(check_ota, "ota", 12 * 1024, NULL, 5, NULL);
             break;
         }
@@ -54,7 +54,7 @@ event_handler(void *ctx, system_event_t *event) {
                 esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCAL_11B | WIFI_PROTOCAL_11G | WIFI_PROTOCAL_11N); // Switch to 802.11 bgn mode
             }
             esp_wifi_connect();
-            xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
+            xEventGroupClearBits(main_event_group, WIFI_CONNECTED_BIT);
             break;
         }
 
@@ -64,37 +64,71 @@ event_handler(void *ctx, system_event_t *event) {
     return ESP_OK;
 }
 
-static void
+static bool
 wifi_init_sta(void) {
-    ESP_ERROR_CHECK(esp_wifi_restore());
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_restore());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     esp_event_loop_set_cb(event_handler, NULL);
 
     nvs_handle nvs_wifi;
     wifi_config_t wifi_config = { };
 
-    size_t ssid_len = sizeof(wifi_config.sta.ssid);
-    size_t password_len = sizeof(wifi_config.sta.password);
+    esp_err_t res = nvs_open("wifi", NVS_READONLY, &nvs_wifi);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent WiFi config: %d", res);
+        printf("NVS structure error\n");
+        return false;
+    }
 
-    ESP_ERROR_CHECK(nvs_open("wifi", NVS_READONLY, &nvs_wifi));
-    ESP_ERROR_CHECK(nvs_get_str(nvs_wifi, "ssid", (char*)wifi_config.sta.ssid, &ssid_len));
-    ESP_ERROR_CHECK(nvs_get_str(nvs_wifi, "password", (char*)wifi_config.sta.password, &password_len));
+    size_t ssid_len = sizeof(wifi_config.sta.ssid);
+    res = nvs_get_str(nvs_wifi, "ssid", (char*)wifi_config.sta.ssid, &ssid_len);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find WiFi SSID in persistent config: %d", res);
+        printf("NVS SSID error\n");
+        return false;
+    }
+    ESP_LOGI(TAG, "WiFi ssid (len=%d) '%s'", ssid_len, wifi_config.sta.ssid);
+
+    size_t password_len = sizeof(wifi_config.sta.password);
+    res = nvs_get_str(nvs_wifi, "password", (char*)wifi_config.sta.password, &password_len);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find WiFi password in persistent config: %d", res);
+        printf("NVS password error\n");
+        return false;
+    }
+    ESP_LOGI(TAG, "WiFi password (len=%d)", password_len); // wifi_config.sta.password
+
     nvs_close(nvs_wifi);
 
-    ESP_LOGI(TAG, "wifi ssid (len=%d) '%s'", ssid_len, wifi_config.sta.ssid);
-    ESP_LOGI(TAG, "wifi password (len=%d)", password_len); // wifi_config.sta.password
+    res = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot set WiFi station mode: %d", res);
+        printf("STA mode error\n");
+        return false;
+    }
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    res = esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot configure WiFi station: %d", res);
+        printf("STA config failed\n");
+        return false;
+    }
 
-    ESP_LOGI(TAG, "wifi_init_sta finished.");
+    res = esp_wifi_start();
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot start WiFi station: %d", res);
+        printf("STA start failed\n");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "WiFi station started");
+    return true;
 }
 
 static void
 wifi_stop(void) {
     esp_event_loop_set_cb(NULL, NULL);
-    ESP_ERROR_CHECK(esp_wifi_stop());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_stop());
 }
 
 
@@ -123,7 +157,7 @@ gpio_debounce_expired(TimerHandle_t xTimer) {
     }
 }
 
-static TaskHandle_t admin_task = NULL;
+static bool in_admin_mode = false;
 
 static void
 gpio_process_task(void *arg)
@@ -136,13 +170,14 @@ gpio_process_task(void *arg)
         ESP_LOGI(TAG, "GPIO[%d]=%d", io_num & 0x7f, io_num & 0x80);
         switch (io_num) {
             case GPIO_BUTTON: {
-                if (admin_task && (eTaskGetState(admin_task) < eDeleted)) {
+                if (in_admin_mode) {
                     break;
                 }
                 ESP_LOGI(TAG, "Entering admin mode");
+                in_admin_mode = true;
                 // TODO: stop normal operation
                 wifi_stop();
-                xTaskCreate(admin_mode, "admin", 12 * 1024, NULL, 5, &admin_task);
+                admin_mode_start();
                 break;
             }
         }
@@ -230,7 +265,10 @@ screen_test(void) {
 void
 app_main()
 {
-    ESP_LOGI(TAG, "start");
+    ESP_LOGI(TAG, "Start");
+
+    ssd1306_init(SSD1306_I2C, 4, 5);
+    lcd_init(SSD1306_I2C);
 
     /* Print chip information */
     esp_chip_info_t chip_info;
@@ -238,36 +276,49 @@ app_main()
     ESP_LOGI(TAG, "This is ESP8266 chip with %d CPU cores, WiFi, silicon revision %d, %dMB %s flash\n",
         chip_info.cores, chip_info.revision, spi_flash_get_chip_size() / (1024 * 1024),
         (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+    printf("cores:%d, flash:%d\n", chip_info.cores, spi_flash_get_chip_size() >> 20);
 
     //Initialize NVS
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES) {
-      ESP_ERROR_CHECK(nvs_flash_erase());
-      ret = nvs_flash_init();
+    esp_err_t res = nvs_flash_init();
+    if (res == ESP_ERR_NVS_NO_FREE_PAGES) {
+        ESP_LOGW(TAG, "NVS was not initialized");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        res = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(ret);
+    if (res != ESP_OK) {
+        printf("NVS error %d\n", res);
+        ESP_LOGW(TAG, "NVS failed: %d", res);
+    }
 
-    wifi_event_group = xEventGroupCreate();
+    main_event_group = xEventGroupCreate();
 
     tcpip_adapter_init();
-    ESP_ERROR_CHECK(esp_event_loop_init(NULL, NULL));
+    res = esp_event_loop_init(NULL, NULL);
+    if (res != ESP_OK) {
+        printf("EventLoop error %d\n", res);
+        ESP_LOGE(TAG, "Event loop failed: %d", res);
+    }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-
-    ssd1306_init(SSD1306_I2C, 4, 5);
-    lcd_init(SSD1306_I2C);
+    res = esp_wifi_init(&cfg);
+    if (res != ESP_OK) {
+        printf("WiFi init error %d\n", res);
+        ESP_LOGE(TAG, "WiFi init failed: %d", res);
+    }
+    res = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "WiFi storage failed: %d", res);
+    }
 
     screen_test();
 
-    wifi_init_sta();
-    //xEventGroupWaitBits(wifi_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
-    ESP_LOGI(TAG, "real start");
+    if (wifi_init_sta()) {
+        //xEventGroupWaitBits(main_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
+        //xTaskCreate(report_status, "report", 12 * 1024, NULL, 5, NULL);
+    }
+    ESP_LOGI(TAG, "Up and running");
+    printf("Ready\n");
+    button_init(); // NOTE: no admin mode while potentially reflashing an OTA update!
     gps_init();
-    button_init();
-
-
-    // esp_restart();
 }
 // vim: set sw=4 ts=4 indk= et si:

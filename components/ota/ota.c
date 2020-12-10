@@ -378,17 +378,18 @@ check_ota(void * pvParameters __attribute__((unused))) {
     nvs_handle nvs_firmware;
 
     ESP_LOGI(TAG, "Checking OTA");
+    printf("Checking OTA...\n");
 
     const esp_partition_t *running = esp_ota_get_running_partition();
-    LOG_PARTITION("Running", running);
+    //LOG_PARTITION("Running", running);
 
     const esp_partition_t *update = esp_ota_get_next_update_partition(NULL);
-    LOG_PARTITION("Update", update);
+    //LOG_PARTITION("Update", update);
 
     uint32_t current_mtime;
     ret = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot open nvs: 0x%x", ret);
+        ESP_LOGE(TAG, "Cannot open NVS: 0x%x", ret);
     }
     else {
         ret = nvs_get_u32(nvs_firmware, running->label, &current_mtime);
@@ -461,6 +462,7 @@ check_ota(void * pvParameters __attribute__((unused))) {
 
     if (fw_mtime <= current_mtime) {
         ESP_LOGI(TAG, "Current firmware is up-to-date");
+        printf("Firmware up-to-date\n");
     }
     else if (fw_name[0]) { // get the firmware binary
         uint16_t sum1, sum2; // Fletcher16: don't want to deal with odd-bytes-long chunks
@@ -494,6 +496,7 @@ check_ota(void * pvParameters __attribute__((unused))) {
 
         sum1 = sum2 = 0;
         time(&last_time);
+        printf("Downloading firmware\n");
         while (read_http_body(&ctx, &data, &datalen)) {
             time(&now);
             if ((now - last_time) > 1) {
@@ -576,6 +579,8 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
 
         ESP_LOGI(TAG, "OTA binary end, restarting");
+        printf("Firmware update OK\n");
+        printf("Restarting...\n");
         esp_restart();
     }
 
@@ -583,7 +588,7 @@ close_conn:
     https_conn_destroy(&ctx);
 
     ESP_LOGI(TAG, "OTA check done");
-    xEventGroupSetBits(wifi_event_group, OTA_CHECK_DONE_BIT);
+    xEventGroupSetBits(main_event_group, OTA_CHECK_DONE_BIT);
     vTaskDelete(NULL);
 }
 
