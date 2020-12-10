@@ -16,15 +16,22 @@
 #include <esp_event_loop.h>
 #include <esp_wifi.h>
 #include <esp_http_server.h>
+#include <esp_base64.h>
 
 #include <stdio.h>
 #include <string.h>
 
+#define HTTPD_411 "411 Length Required"
+#define HTTPD_413 "413 Payload Too Large"
+#define HTTPD_415 "415 Unsupported Media Type"
+
 static const char *TAG = "admin";
 
-static const char AP_SSID[] = "yadda";
-static const char AP_PASSWORD[] = "yaddaboo";
+static char AP_SSID[9];
+static char AP_PASSWORD[9];
 
+extern const unsigned char admin_app_start[] asm("_binary_index_html_gz_start");
+extern const unsigned char admin_app_end[] asm("_binary_index_html_gz_end");
 
 /******************************************************************************
  * Show some info on the display
@@ -55,11 +62,12 @@ display_portal_url(void) {
     ip4addr_ntoa_r(&ap_info.ip, str_ip, sizeof(str_ip));
 
     // Encoding URLs on QR-Code: https://github.com/zxing/zxing/wiki/Barcode-Contents#url
-    size_t len = snprintf((char*)buf, sizeof(buf), "http://%s/", str_ip);
+    size_t len = snprintf((char*)buf, sizeof(buf), "http://%s/app", str_ip);
 
     lcd_clear();
     lcd_puts(11, 0, "http://");
     lcd_puts(11, 1, str_ip);
+    lcd_puts(11, 2, "/app");
     lcd_qr(buf, len);
 }
 
@@ -96,45 +104,346 @@ dns_policy(dns_buf_t *out, const char *name, dns_type_t type, dns_class_t _class
 
 
 /******************************************************************************
- * HTTPS Server details
+ * HTTPS Server helpers
  */
 
+#define BUF_SIZE 2049
+static httpd_handle_t http_server = NULL;
+
 static esp_err_t
-http_generate_204_handler(httpd_req_t *req) {
-    ESP_LOGD(TAG, "/generate_204");
-    httpd_resp_set_status(req, "204 No Content");
+httpd_resp_empty(httpd_req_t *req, const char *status) {
+    httpd_resp_set_status(req, status);
     httpd_resp_send(req, NULL, 0);
     return ESP_OK;
 }
 
 
-static esp_err_t
-root_get_handler(httpd_req_t *req) {
-    ESP_LOGD(TAG, "root_get_handler;");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, "<h1>Hello Secure World!</h1>", -1); // -1 = use strlen()
-    return ESP_OK;
+static bool
+httpd_check_content_type(httpd_req_t *req, const char *shouldbe) {
+    char ctype[64];
+    ctype[0] = '\0';
+    int res = httpd_req_get_hdr_value_str(req, "Content-Type", ctype, sizeof(ctype));
+    res = (res == ESP_OK) && !strcmp(shouldbe, ctype);
+    if (!res) {
+        ESP_LOGW(TAG, "Content type mismatch, is='%s', shouldbe='%s'", ctype, shouldbe);
+    }
+    return res;
 }
 
 
+static bool
+httpd_read_short_body(httpd_req_t *req, char* buf, size_t buflen) {
+    if (!buf || !buflen) {
+        ESP_LOGE(TAG, "Buffer does not exists");
+        httpd_resp_empty(req, HTTPD_500);
+        return false;
+    }
+    if (!req->content_len) {
+        httpd_resp_empty(req, HTTPD_411);
+        return false;
+    }
+    if (req->content_len >= buflen) { // not a bug: >= to reserve one byte for trailing zero
+        httpd_resp_empty(req, HTTPD_413);
+        return false;
+    }
+
+    char *p = buf;
+    int remaining = req->content_len;
+    while (remaining > 0) {
+        int res = httpd_req_recv(req, p, remaining);
+        if (res <= 0) {
+            ESP_LOGE(TAG, "Failed to read request body: %d", res);
+            return false;
+        }
+        p += res;
+        remaining -= res;
+    }
+    *p = '\0';
+    return true;
+}
+
+/******************************************************************************
+ * HTTPS Server methods
+ */
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_get_app(httpd_req_t *req) {
+    ESP_LOGI(TAG, "GET /app");
+    char enc[16];
+
+    int res = httpd_req_get_hdr_value_str(req, "Accept-Encoding", enc, sizeof(enc));
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Client browser does not support gzip encoding");
+        httpd_resp_set_status(req, "412 Need gzip support");
+        httpd_resp_send(req, NULL, 0);
+        return ESP_OK;
+    }
+
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, admin_app_start, admin_app_end - admin_app_start);
+    return ESP_OK;
+}
+
 static const
-httpd_uri_t root = {
-    .uri       = "/",
+httpd_uri_t uri_get_app = {
+    .uri       = "/app",
     .method    = HTTP_GET,
-    .handler   = root_get_handler
+    .handler   = http_get_app,
 };
 
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_get_generate_204(httpd_req_t *req) {
+    ESP_LOGD(TAG, "GET /generate_204");
+    return httpd_resp_empty(req, HTTPD_204);
+}
 
 static const
-httpd_uri_t http_generate_204 = {
+httpd_uri_t uri_get_generate_204 = {
     .uri       = "/generate_204",
     .method    = HTTP_GET,
-    .handler   = http_generate_204_handler
+    .handler   = http_get_generate_204,
 };
 
 
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_reboot(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/reboot");
+    TimerHandle_t timer = xTimerCreate("reboot", pdMS_TO_TICKS(1000), pdFALSE, NULL, (TimerCallbackFunction_t)esp_restart);
+    if (!timer) {
+        ESP_LOGE(TAG, "Failed to create reboot timer");
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    xTimerStart(timer, 0);
+    return httpd_resp_empty(req, HTTPD_204);
+}
 
-httpd_handle_t http_server = NULL;
+static const
+httpd_uri_t uri_post_reboot = {
+    .uri       = "/rest/reboot",
+    .method    = HTTP_POST,
+    .handler   = http_post_reboot,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_get_wifi_ssids(httpd_req_t *req) {
+    ESP_LOGI(TAG, "GET /rest/wifi/ssids");
+    static const char fake[] = "[\"epsilon\",\"zeta\",\"eta\",\"theta\"]"; // FIXME: unfake
+    httpd_resp_send(req, fake, -1);
+    return ESP_OK;
+}
+static const
+httpd_uri_t uri_get_wifi_ssids = {
+    .uri       = "/rest/wifi/ssids",
+    .method    = HTTP_GET,
+    .handler   = http_get_wifi_ssids,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_wifi_ssid(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/wifi/ssid");
+    char body[65];
+    if (!httpd_read_short_body(req, body, sizeof(body))) {
+        return ESP_OK;
+    }
+    ESP_LOGD(TAG, "Request body '%s'", body);
+    // D (54662) admin: Request body '{"ssid":"charlie"}'
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_wifi_ssid = {
+    .uri       = "/rest/wifi/ssid",
+    .method    = HTTP_POST,
+    .handler   = http_post_wifi_ssid,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_wifi_password(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/wifi/password");
+    char body[65];
+    if (!httpd_read_short_body(req, body, sizeof(body))) {
+        return ESP_OK;
+    }
+    ESP_LOGD(TAG, "Request body '%s'", body);
+    // D (108984) admin: Request body '{"password":"qwer"}'
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_wifi_password = {
+    .uri       = "/rest/wifi/password",
+    .method    = HTTP_POST,
+    .handler   = http_post_wifi_password,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_ssl_pkey(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/ssl/pkey");
+    char *body = (char*)malloc(BUF_SIZE);
+    if (!httpd_read_short_body(req, body, BUF_SIZE)) {
+        free(body);
+        return ESP_OK;
+    }
+    if (!httpd_check_content_type(req, "application/pkcs8")) {
+        return httpd_resp_empty(req, HTTPD_415);
+    }
+    hexdump(body, req->content_len);
+    free(body);
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_ssl_pkey = {
+    .uri       = "/rest/ssl/pkey",
+    .method    = HTTP_POST,
+    .handler   = http_post_ssl_pkey,
+};
+
+//
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_ssl_cert(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/ssl/cert");
+    char *body = (char*)malloc(BUF_SIZE);
+    if (!httpd_read_short_body(req, body, BUF_SIZE)) {
+        free(body);
+        return ESP_OK;
+    }
+    if (!httpd_check_content_type(req, "application/x-x509-user-cert")) {
+        return httpd_resp_empty(req, HTTPD_415);
+    }
+    hexdump(body, req->content_len);
+    free(body);
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_ssl_cert = {
+    .uri       = "/rest/ssl/cert",
+    .method    = HTTP_POST,
+    .handler   = http_post_ssl_cert,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_ssl_cacert(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/ssl/cacert");
+    char *body = (char*)malloc(BUF_SIZE);
+    if (!httpd_read_short_body(req, body, BUF_SIZE)) {
+        free(body);
+        return ESP_OK;
+    }
+    if (!httpd_check_content_type(req, "application/x-x509-ca-cert")) {
+        return httpd_resp_empty(req, HTTPD_415);
+    }
+    hexdump(body, req->content_len);
+    free(body);
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_ssl_cacert = {
+    .uri       = "/rest/ssl/cacert",
+    .method    = HTTP_POST,
+    .handler   = http_post_ssl_cacert,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_ota_url(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/ota/url");
+    char body[65];
+    if (!httpd_read_short_body(req, body, sizeof(body))) {
+        return ESP_OK;
+    }
+    ESP_LOGD(TAG, "Request body '%s'", body);
+    // D (289555) admin: Request body '{"ota_url":"https://ota.wodeewa.com/out/gps-unit.desc"}'
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_ota_url = {
+    .uri       = "/rest/ota/url",
+    .method    = HTTP_POST,
+    .handler   = http_post_ota_url,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_server_url(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/server/url");
+    char body[65];
+    if (!httpd_read_short_body(req, body, sizeof(body))) {
+        return ESP_OK;
+    }
+    ESP_LOGD(TAG, "Request body '%s'", body);
+    // D (369076) admin: Request body '{"data_url":"https://alpha.wodeewa.com/gps-reports"}'
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_server_url = {
+    .uri       = "/rest/server/url",
+    .method    = HTTP_POST,
+    .handler   = http_post_server_url,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_server_time_threshold(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/server/time_threshold");
+    char body[65];
+    if (!httpd_read_short_body(req, body, sizeof(body))) {
+        return ESP_OK;
+    }
+    ESP_LOGD(TAG, "Request body '%s'", body);
+    // D (318487) admin: Request body '{"data_time_threshold":30}'
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_server_time_threshold = {
+    .uri       = "/rest/server/time_threshold",
+    .method    = HTTP_POST,
+    .handler   = http_post_server_time_threshold,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_server_distance_threshold(httpd_req_t *req) {
+    ESP_LOGI(TAG, "POST /rest/server/distance_threshold");
+    char body[65];
+    if (!httpd_read_short_body(req, body, sizeof(body))) {
+        return ESP_OK;
+    }
+    ESP_LOGD(TAG, "Request body '%s'", body);
+    // D (345347) admin: Request body '{"data_distance_threshold":100}'
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+static const
+httpd_uri_t uri_post_server_distance_threshold = {
+    .uri       = "/rest/server/distance_threshold",
+    .method    = HTTP_POST,
+    .handler   = http_post_server_distance_threshold,
+};
 
 
 /*******************************************************************************
@@ -161,15 +470,26 @@ event_handler(void *ctx, system_event_t *event) {
             if (http_server == NULL) {
                 ESP_LOGI(TAG, "Starting http server;");
                 httpd_config_t conf = HTTPD_DEFAULT_CONFIG();
-                conf.max_uri_handlers = 8;
+                conf.max_uri_handlers = 24;
                 conf.max_resp_headers = 8;
                 esp_err_t ret = httpd_start(&http_server, &conf);
                 if (ret != ESP_OK) {
                     ESP_LOGE(TAG, "Error starting server; status=%d", ret);
                 }
                 else {
-                    httpd_register_uri_handler(http_server, &root);
-                    httpd_register_uri_handler(http_server, &http_generate_204);
+                    httpd_register_uri_handler(http_server, &uri_get_app);
+                    httpd_register_uri_handler(http_server, &uri_get_generate_204);
+                    httpd_register_uri_handler(http_server, &uri_post_reboot );
+                    httpd_register_uri_handler(http_server, &uri_get_wifi_ssids );
+                    httpd_register_uri_handler(http_server, &uri_post_wifi_ssid );
+                    httpd_register_uri_handler(http_server, &uri_post_wifi_password );
+                    httpd_register_uri_handler(http_server, &uri_post_ssl_pkey );
+                    httpd_register_uri_handler(http_server, &uri_post_ssl_cert );
+                    httpd_register_uri_handler(http_server, &uri_post_ssl_cacert );
+                    httpd_register_uri_handler(http_server, &uri_post_ota_url );
+                    httpd_register_uri_handler(http_server, &uri_post_server_url );
+                    httpd_register_uri_handler(http_server, &uri_post_server_time_threshold );
+                    httpd_register_uri_handler(http_server, &uri_post_server_distance_threshold );
                     ESP_LOGI(TAG, "Started http server;");
                 }
             }
@@ -219,9 +539,20 @@ wifi_init_ap(void) {
 
     wifi_config_t wifi_config = { 0 };
 
-    memcpy(wifi_config.ap.ssid, AP_SSID, sizeof(AP_SSID));
-    wifi_config.ap.ssid_len = sizeof(AP_SSID) - 1;
-    memcpy(wifi_config.ap.password, AP_PASSWORD, sizeof(AP_PASSWORD));
+    uint32_t rndbuf[2];
+
+    rndbuf[0] = esp_random();
+    rndbuf[1] = esp_random();
+    esp_base64_encode(rndbuf, 6, AP_SSID, sizeof(AP_SSID));
+    rndbuf[0] = esp_random();
+    rndbuf[1] = esp_random();
+    esp_base64_encode(rndbuf, 6, AP_PASSWORD, sizeof(AP_PASSWORD));
+
+    ESP_LOGI(TAG, "SSID=%s, password=%s", AP_SSID, AP_PASSWORD);
+
+    strncpy(wifi_config.ap.ssid, AP_SSID, sizeof(wifi_config.ap.ssid));
+    wifi_config.ap.ssid_len = strlen(AP_SSID);
+    strncpy(wifi_config.ap.password, AP_PASSWORD, sizeof(wifi_config.ap.password));
     wifi_config.ap.max_connection = 4;
     wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
 
