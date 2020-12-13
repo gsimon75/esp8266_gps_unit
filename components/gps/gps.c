@@ -96,7 +96,6 @@ process_new_fix(void) {
 
     lcd_gotoxy(0, 2);
     printf("%d, %5.3f, %5.3f, %lu", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (unsigned long)(gps_fix.time_usec / 1e6));
-    fflush(stdout);
 }
 
 

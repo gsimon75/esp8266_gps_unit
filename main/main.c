@@ -35,23 +35,42 @@ static esp_err_t
 event_handler(void *ctx, system_event_t *event) {
     system_event_info_t *info = &event->event_info;
     
-    switch(event->event_id) {
+    switch (event->event_id) {
         case SYSTEM_EVENT_STA_START: {
             esp_wifi_connect();
             break;
         }
 
         case SYSTEM_EVENT_STA_GOT_IP: {
-            ESP_LOGI(TAG, "STA_GOT_IP %s", ip4addr_ntoa(&info->got_ip.ip_info.ip));
+            const char *ip_s = ip4addr_ntoa(&info->got_ip.ip_info.ip);
+            printf("IP:%s\n", ip_s);
+            ESP_LOGI(TAG, "STA_GOT_IP %s", ip_s);
             xEventGroupSetBits(main_event_group, WIFI_CONNECTED_BIT);
             //xTaskCreate(check_ota, "ota", 12 * 1024, NULL, 5, NULL);
             break;
         }
 
         case SYSTEM_EVENT_STA_DISCONNECTED: {
-            ESP_LOGE(TAG, "STA_DISCONNECTED %d", info->disconnected.reason);
-            if (info->disconnected.reason == WIFI_REASON_BASIC_RATE_NOT_SUPPORT) {
-                esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCAL_11B | WIFI_PROTOCAL_11G | WIFI_PROTOCAL_11N); // Switch to 802.11 bgn mode
+            switch (info->disconnected.reason) {
+                case WIFI_REASON_BASIC_RATE_NOT_SUPPORT: {
+                    esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCAL_11B | WIFI_PROTOCAL_11G | WIFI_PROTOCAL_11N); // Switch to 802.11 bgn mode
+                    break;
+                }
+
+                case WIFI_REASON_NO_AP_FOUND: {
+                    ESP_LOGE(TAG, "WiFi AP not found (bad SSID?)");
+                    break;
+                }
+                 
+                case WIFI_REASON_AUTH_FAIL: {
+                    ESP_LOGE(TAG, "WiFi auth failed (bad password?)");
+                    break;
+                }
+
+                default: {
+                    ESP_LOGE(TAG, "STA_DISCONNECTED %d", info->disconnected.reason);
+                    break;
+                }
             }
             esp_wifi_connect();
             xEventGroupClearBits(main_event_group, WIFI_CONNECTED_BIT);
@@ -59,6 +78,7 @@ event_handler(void *ctx, system_event_t *event) {
         }
 
         default:
+            ESP_LOGI(TAG, "Unhandled event 0x%x", event->event_id);
             break;
     }
     return ESP_OK;
@@ -253,7 +273,6 @@ screen_test(void) {
     for (int i = 0; i < 3; ++i) {
         printf("%3d\n", i);
     }
-    fflush(stdout);
 
     /*
     lcd_clear();
@@ -270,13 +289,17 @@ app_main()
     ssd1306_init(SSD1306_I2C, 4, 5);
     lcd_init(SSD1306_I2C);
 
+    //screen_test();
+    lcd_gotoxy(0, 2);
+    printf("GPS unit starting\n");
+
     /* Print chip information */
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
     ESP_LOGI(TAG, "This is ESP8266 chip with %d CPU cores, WiFi, silicon revision %d, %dMB %s flash\n",
         chip_info.cores, chip_info.revision, spi_flash_get_chip_size() / (1024 * 1024),
         (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
-    printf("cores:%d, flash:%d\n", chip_info.cores, spi_flash_get_chip_size() >> 20);
+    printf("Cores:%d, Flash:%dMB\n", chip_info.cores, spi_flash_get_chip_size() >> 20);
 
     //Initialize NVS
     esp_err_t res = nvs_flash_init();
@@ -310,15 +333,15 @@ app_main()
         ESP_LOGW(TAG, "WiFi storage failed: %d", res);
     }
 
-    screen_test();
+    button_init(); // for admin mode
 
     if (wifi_init_sta()) {
         //xEventGroupWaitBits(main_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
         //xTaskCreate(report_status, "report", 12 * 1024, NULL, 5, NULL);
     }
+
     ESP_LOGI(TAG, "Up and running");
     printf("Ready\n");
-    button_init(); // NOTE: no admin mode while potentially reflashing an OTA update!
     gps_init();
 }
 // vim: set sw=4 ts=4 indk= et si:

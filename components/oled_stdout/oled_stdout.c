@@ -197,6 +197,7 @@ lcd_init(int port) {
     if (!f) {
         return ESP_FAIL;
     }
+    setbuf(f, NULL);
     esp_log_set_putchar(ets_putc);
     fclose(stdout);
     stdout = f;
