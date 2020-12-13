@@ -17,6 +17,7 @@
 #include <esp_wifi.h>
 #include <esp_http_server.h>
 #include <esp_base64.h>
+#include <nvs_flash.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -205,13 +206,8 @@ get_body_field(const unsigned char *p, const char *fieldname, char *dest, size_t
                     break;
                 }
                 else if (*p == '\\') {
-                    switch (p[1]) {
-                        case 'u':
-                        if (!p[2] || !p[3] || !p[4] || !p[5]) return false;
-                        p += 6;
-                        continue;
-
-                        case 'x':
+                    // supported: \t, \r, \n, \\, \", \xnn, the rest should go as utf8 bytestream
+                    if (p[1] == 'x') {
                         if (!p[2] || !p[3]) return false;
                         p += 4;
                         continue;
@@ -241,6 +237,73 @@ get_body_field(const unsigned char *p, const char *fieldname, char *dest, size_t
         if (*p == '}') return false; // end of object
         ++p;
     }
+}
+
+static bool
+decode_json_string(char *src) {
+    if (!src || (*src != '"')) {
+        return false;
+    }
+    char *end = src + strlen(src) - 1;
+    if (*end != '"') {
+        return false;
+    }
+
+    char hexbuf[3], *err;
+    hexbuf[2] = '\0';
+
+    *end = '\0';
+    char *dst = src++;
+    while (src < end) {
+        char *backslash = strchr(src, '\\');
+        if (!backslash) {
+            if (src != dst) {
+                size_t len = end - src;
+                memcpy(dst, src, len);
+                dst[len] = '\0';
+            }
+            return true;
+        }
+        if (src != dst) {
+            size_t len = backslash - src;
+            memcpy(dst, src, len);
+            dst += len;
+        }
+        switch (backslash[1]) {
+            case 'x': {
+                hexbuf[0] = backslash[2];
+                hexbuf[1] = backslash[3];
+                *(dst++) = strtol(hexbuf, &err, 16);
+                if (*err) {
+                    return false;
+                }
+                src = backslash + 4;
+                break;
+            }
+            case 't': {
+                *(dst++) = '\t';
+                src = backslash + 2;
+                break;
+            }
+            case 'r': {
+                *(dst++) = '\r';
+                src = backslash + 2;
+                break;
+            }
+            case 'n': {
+                *(dst++) = '\n';
+                src = backslash + 2;
+                break;
+            }
+            default: {
+                *(dst++) = backslash[1];
+                src = backslash + 2;
+                break;
+            }
+        }
+    }
+    *dst = '\0';
+    return true;
 }
 
 
@@ -337,10 +400,26 @@ http_post_wifi_ssid(httpd_req_t *req) {
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
     // D (54662) admin: Request body '{"ssid":"charlie"}'
-    if (!get_body_field(body, "ssid", value, sizeof(value))) {
+    if (!get_body_field(body, "ssid", value, sizeof(value))
+        || !decode_json_string(value)
+        ) {
         return httpd_resp_empty(req, HTTPD_400);
     }
-    ESP_LOGD(TAG, "Received value '%s'", value);
+
+    nvs_handle nvs_wifi;
+    esp_err_t res = nvs_open("wifi", NVS_READWRITE, &nvs_wifi);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent WiFi config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_str(nvs_wifi, "ssid", value);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write WiFi SSID to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs_wifi);
+    ESP_LOGI(TAG, "New WiFi SSID '%s'", value);
+
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -362,10 +441,26 @@ http_post_wifi_password(httpd_req_t *req) {
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
     // D (108984) admin: Request body '{"password":"qwer"}'
-    if (!get_body_field(body, "password", value, sizeof(value))) {
+    if (!get_body_field(body, "password", value, sizeof(value))
+        || !decode_json_string(value)
+        ) {
         return httpd_resp_empty(req, HTTPD_400);
     }
-    ESP_LOGD(TAG, "Received value '%s'", value);
+
+    nvs_handle nvs_wifi;
+    esp_err_t res = nvs_open("wifi", NVS_READWRITE, &nvs_wifi);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent WiFi config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_str(nvs_wifi, "password", value);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write WiFi password to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs_wifi);
+    ESP_LOGI(TAG, "New WiFi password (len=%d)", strlen(value));
+
     return httpd_resp_empty(req, HTTPD_204);
 }
 
