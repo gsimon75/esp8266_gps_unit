@@ -29,17 +29,21 @@
 
 static const char *TAG = "admin";
 
-static char AP_SSID[9];
-static char AP_PASSWORD[9];
-
 extern const unsigned char admin_app_start[] asm("_binary_index_html_gz_start");
 extern const unsigned char admin_app_end[] asm("_binary_index_html_gz_end");
 
+static char AP_SSID[9];
+static char AP_PASSWORD[9];
+
+static int num_scanned_aps = 0;
+static int allocated_scanned_aps = 0;
+static char **scanned_aps = NULL;
+
 /******************************************************************************
- * Show some info on the display
+ * Misc helpers
  */
 
-void
+static void
 display_wifi_conn(void) {
     // Encoding wifi parameters on QR-Code: https://github.com/zxing/zxing/wiki/Barcode-Contents#wi-fi-network-config-android-ios-11
     uint8_t buf[64];
@@ -54,7 +58,7 @@ display_wifi_conn(void) {
 }
 
 
-void
+static void
 display_portal_url(void) {
     uint8_t buf[64];
     char str_ip[16];
@@ -73,6 +77,31 @@ display_portal_url(void) {
     lcd_qr(buf, len);
 }
 
+
+static void
+start_scan(void) {
+    static const wifi_scan_config_t scan_cfg = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,
+        .show_hidden = false,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time = {
+            .active = {
+                .min = 0,
+                .max = 0,
+            },
+        },
+    };
+
+    esp_err_t res = esp_wifi_scan_start(&scan_cfg, false);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start WiFi scan: %d", res);
+    }
+    else {
+        ESP_LOGI(TAG, "Started WiFi scan");
+    }
+}
 
 /******************************************************************************
  * DNS Server details
@@ -378,10 +407,30 @@ httpd_uri_t uri_post_reboot = {
 static esp_err_t
 http_get_wifi_ssids(httpd_req_t *req) {
     ESP_LOGI(TAG, "GET /rest/wifi/ssids");
-    static const char fake[] = "[\"epsilon\",\"zeta\",\"eta\",\"theta\"]"; // FIXME: unfake
-    httpd_resp_send(req, fake, -1);
+    size_t resplen = 1; // closing square at the end
+    for (int i = 0; i < num_scanned_aps; ++i) {
+        resplen += 1 + 1 + strlen(scanned_aps[i]) + 1; // opening square or comma, quote, string, quote
+    }
+    char *resp = (char *)malloc(1 + resplen);
+    if (!resp) {
+        ESP_LOGE(TAG, "Out of memory");
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    char *p = resp;
+    for (int i = 0; i < num_scanned_aps; ++i) {
+        *(p++) = i ? ',' : '[';
+        *(p++) = '"';
+        p = stpcpy(p, scanned_aps[i]);
+        *(p++) = '"';
+    }
+    *(p++) = ']';
+    *p = '\0';
+    httpd_resp_send(req, resp, resplen);
+    free(resp);
+    start_scan(); // start a new scan, so the user has a way to refresh the info
     return ESP_OK;
 }
+
 static const
 httpd_uri_t uri_get_wifi_ssids = {
     .uri       = "/rest/wifi/ssids",
@@ -651,11 +700,9 @@ httpd_uri_t uri_post_server_distance_threshold = {
  * Event handlers
  */
 
-
 static esp_err_t
 event_handler(void *ctx, system_event_t *event) {
     system_event_info_t *info = &event->event_info;
-    
     switch (event->event_id) {
         case SYSTEM_EVENT_AP_START: {
             ESP_LOGI(TAG, "AP_START");
@@ -673,9 +720,9 @@ event_handler(void *ctx, system_event_t *event) {
                 httpd_config_t conf = HTTPD_DEFAULT_CONFIG();
                 conf.max_uri_handlers = 24;
                 conf.max_resp_headers = 8;
-                esp_err_t ret = httpd_start(&http_server, &conf);
-                if (ret != ESP_OK) {
-                    ESP_LOGE(TAG, "Error starting server; status=%d", ret);
+                esp_err_t res = httpd_start(&http_server, &conf);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "Error starting server; status=%d", res);
                 }
                 else {
                     httpd_register_uri_handler(http_server, &uri_get_app);
@@ -697,6 +744,75 @@ event_handler(void *ctx, system_event_t *event) {
 
             dns_server_start(dns_policy);
             display_wifi_conn();
+            start_scan();
+            break;
+        }
+
+        case SYSTEM_EVENT_SCAN_DONE: {
+            esp_err_t res;
+            ESP_LOGD(TAG, "SCAN_DONE");
+            ESP_LOGD(TAG, "SCAN_DONE status=%d, number=%d, scan_id=%d", info->scan_done.status, info->scan_done.number, info->scan_done.scan_id);
+
+            uint16_t num_aps = 0;
+            res = esp_wifi_scan_get_ap_num(&num_aps);
+            if (res != ESP_OK) {
+                ESP_LOGE(TAG, "get_ap_num failed: %d", res);
+                break;
+            }
+            if (num_aps == 0) {
+                ESP_LOGW(TAG, "Zero APs found");
+                break;
+            }
+            ESP_LOGD(TAG, "Scan ok, num_aps=%d", num_aps);
+            wifi_ap_record_t *aps = (wifi_ap_record_t*)malloc(num_aps * sizeof(wifi_ap_record_t));
+            if (!aps) {
+                ESP_LOGW(TAG, "Out of memory");
+                break;
+            }
+
+            res = esp_wifi_scan_get_ap_records(&num_aps, aps);
+            if (res != ESP_OK) {
+                ESP_LOGE(TAG, "Scan failed: %d", res);
+                break;
+            }
+            ESP_LOGD(TAG, "APs retrieved, num_aps=%d", num_aps);
+            num_scanned_aps = 0;
+            if (allocated_scanned_aps < num_aps) {
+                scanned_aps = (char**)realloc(scanned_aps, num_aps * sizeof(char*));
+                if (!scanned_aps) {
+                    ESP_LOGW(TAG, "Out of memory");
+                    break;
+                }
+                for (int i = allocated_scanned_aps; i < num_aps; ++i) {
+                    scanned_aps[i] = (char*)malloc(32);
+                    if (!scanned_aps[i]) {
+                        ESP_LOGW(TAG, "Out of memory");
+                        break;
+                    }
+                }
+                allocated_scanned_aps = num_aps;
+            }
+            else if (num_aps < allocated_scanned_aps) {
+                for (int i = num_aps; i < allocated_scanned_aps; ++i) {
+                    free(scanned_aps[i]);
+                    scanned_aps[i] = NULL;
+                }
+                scanned_aps = (char**)realloc(scanned_aps, num_aps * sizeof(char*));
+                if (!scanned_aps) {
+                    ESP_LOGW(TAG, "Out of memory");
+                    break;
+                }
+                allocated_scanned_aps = num_aps;
+            }
+            for (int i = 0; i < num_aps; ++i) {
+                ESP_LOGD(TAG, "AP %d: ssid='%s', channel=%d, bssid=%02x:%02x:%02x:%02x:%02x:%02x",
+                    i, aps[i].ssid, aps[i].primary, aps[i].bssid[0], aps[i].bssid[1], aps[i].bssid[2], aps[i].bssid[3], aps[i].bssid[4], aps[i].bssid[5]);
+                memcpy(scanned_aps[i], aps[i].ssid, 32);
+                scanned_aps[i][32 - 1] = '\0'; // asciiz ensured
+            }
+            free(aps);
+            aps = NULL;
+            num_scanned_aps = num_aps;
             break;
         }
 
@@ -773,7 +889,8 @@ wifi_init_ap(void) {
     wifi_config.ap.max_connection = 4;
     wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
 
-    res = esp_wifi_set_mode(WIFI_MODE_AP);
+    //res = esp_wifi_set_mode(WIFI_MODE_AP);
+    res = esp_wifi_set_mode(WIFI_MODE_APSTA); // for scanning as well
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot set WiFi AP mode: %d", res);
         printf("AP mode error\n");
