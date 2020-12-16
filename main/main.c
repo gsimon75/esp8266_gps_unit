@@ -46,7 +46,7 @@ event_handler(void *ctx, system_event_t *event) {
             printf("IP:%s\n", ip_s);
             ESP_LOGI(TAG, "STA_GOT_IP %s", ip_s);
             xEventGroupSetBits(main_event_group, WIFI_CONNECTED_BIT);
-            //xTaskCreate(check_ota, "ota", 12 * 1024, NULL, 5, NULL);
+            xTaskCreate(check_ota, "ota", 12 * 1024, NULL, 5, NULL);
             break;
         }
 
