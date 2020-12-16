@@ -23,16 +23,6 @@
 
 static const char *TAG = "ota";
 
-extern const unsigned char ota_ca_start[] asm("_binary_ota_ca_der_start");
-extern const unsigned char ota_ca_end[] asm("_binary_ota_ca_der_end");
-
-extern const unsigned char client_pkey_start[] asm("_binary_client_key_der_start");
-extern const unsigned char client_pkey_end[] asm("_binary_client_key_der_end");
-
-extern const unsigned char client_cert_start[] asm("_binary_client_crt_der_start");
-extern const unsigned char client_cert_end[] asm("_binary_client_crt_der_end");
-
-
 static const char OTA_SERVER[] = "ota.wodeewa.com";
 static const char OTA_FIRMWARE_PATH[] = "/out/";
 #ifdef MULTI_IMAGES
@@ -64,7 +54,7 @@ typedef struct {
 } https_conn_context_t;
 
 
-void
+static void
 https_conn_destroy(https_conn_context_t *ctx) {
     mbedtls_ssl_close_notify(&ctx->ssl);
     mbedtls_net_free(&ctx->ssl_ctx);
@@ -76,7 +66,32 @@ https_conn_destroy(https_conn_context_t *ctx) {
 }
 
 
-bool
+static bool
+get_blob(nvs_handle h, const char *name, uint8_t **buf, size_t *buflen) {
+    esp_err_t res = nvs_get_blob(h, name, NULL, buflen);
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "Cannot find blob '%s': %d", name, res);
+        return false;
+    }
+    *buf = (uint8_t*)malloc(*buflen);
+    if (!*buf) {
+        ESP_LOGW(TAG, "Cannot allocate %u bytes for '%s'", *buflen, name);
+        return false;
+    }
+    res = nvs_get_blob(h, name, *buf, buflen);
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "Cannot read blob '%s': %d", name, res);
+        free(*buf);
+        *buf = NULL;
+        return false;
+    }
+    //ESP_LOGD(TAG, "Read blob '%s' of %u bytes", name, *buflen);
+    //hexdump(*buf, *buflen);
+    return true;
+}
+
+
+static bool
 https_conn_init(https_conn_context_t *ctx) {
     ctx->rdpos = ctx->wrpos = ctx->buf;
     ctx->content_length = 0;
@@ -92,42 +107,65 @@ https_conn_init(https_conn_context_t *ctx) {
     mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
     mbedtls_entropy_init(&ctx->entropy);
 
-    int ret;
     time_t last_time, now;
     
-    ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func, &ctx->entropy, NULL, 0);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned %d", ret);
+    esp_err_t res = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func, &ctx->entropy, NULL, 0);
+    if (res != 0) {
+        ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned %d", res);
         goto close_conn;
     }
 
-    ret = mbedtls_x509_crt_parse_der(&ctx->cacert, ota_ca_start, ota_ca_end - ota_ca_start);
-    if (ret < 0) {
-        ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
+    nvs_handle nvs_ssl;
+
+    res = nvs_open("ssl", NVS_READONLY, &nvs_ssl);
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "Cannot find persistent SSL config: %d", res);
+        // proceed without client-side cert
+    }
+    else {
+        uint8_t *blob = NULL;
+        size_t bloblen = 0;
+
+        if (get_blob(nvs_ssl, "cacert", &blob, &bloblen)) {
+            res = mbedtls_x509_crt_parse_der(&ctx->cacert, blob, bloblen);
+            if (res < 0) {
+                ESP_LOGW(TAG, "Failed to parse cacert: -0x%x", -res);
+            }
+            free(blob);
+            blob = NULL;
+            bloblen = 0;
+        }
+
+        if (get_blob(nvs_ssl, "cert", &blob, &bloblen)) {
+            res = mbedtls_x509_crt_parse_der(&ctx->client_cert, blob, bloblen);
+            if (res < 0) {
+                ESP_LOGW(TAG, "Failed to parse cert: -0x%x", -res);
+            }
+            free(blob);
+            blob = NULL;
+            bloblen = 0;
+        }
+
+        if (get_blob(nvs_ssl, "pkey", &blob, &bloblen)) {
+            res = mbedtls_pk_parse_key(&ctx->client_pkey, blob, bloblen, NULL, 0);
+            if (res < 0) {
+                ESP_LOGW(TAG, "Failed to parse pkey: -0x%x", -res);
+            }
+            free(blob);
+            blob = NULL;
+            bloblen = 0;
+        }
+    }
+
+    res = mbedtls_net_connect(&ctx->ssl_ctx, OTA_SERVER, "443", MBEDTLS_NET_PROTO_TCP);
+    if (res != 0) {
+        ESP_LOGE(TAG, "mbedtls_net_connect returned %d", res);
         goto close_conn;
     }
 
-    ret = mbedtls_x509_crt_parse_der(&ctx->client_cert, client_cert_start, client_cert_end - client_cert_start);
-    if (ret < 0) {
-        ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
-        goto close_conn;
-    }
-
-    ret = mbedtls_pk_parse_key(&ctx->client_pkey, client_pkey_start, client_pkey_end - client_pkey_start, NULL, 0);
-    if (ret < 0) {
-        ESP_LOGE(TAG, "mbedtls_pk_parse_key returned -0x%x", -ret);
-        goto close_conn;
-    }
-
-    ret = mbedtls_net_connect(&ctx->ssl_ctx, OTA_SERVER, "443", MBEDTLS_NET_PROTO_TCP);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_net_connect returned %d", ret);
-        goto close_conn;
-    }
-
-    ret = mbedtls_ssl_config_defaults(&ctx->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_ssl_config_defaults returned %d", ret);
+    res = mbedtls_ssl_config_defaults(&ctx->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+    if (res != 0) {
+        ESP_LOGE(TAG, "mbedtls_ssl_config_defaults returned %d", res);
         goto close_conn;
     }
 
@@ -139,20 +177,20 @@ https_conn_init(https_conn_context_t *ctx) {
      * 4. We don't have a precise time, so cert validity would fail with MBEDTLS_X509_BADCERT_FUTURE
      * Therefore we set it to OPTIONAL do disable the automatic check-or-fail logic, and call mbedtls_ssl_get_verify_result() later manually
      */
-    mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->cacert, NULL);
+    mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->cacert, NULL); // FIXME: if present
     mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
     mbedtls_ssl_conf_cert_profile(&ctx->conf, &mbedtls_x509_crt_profile_next);
-    mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->client_cert, &ctx->client_pkey);
+    mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->client_cert, &ctx->client_pkey); // FIXME: if present
 
-    ret = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_ssl_setup returned %d", ret);
+    res = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf);
+    if (res != 0) {
+        ESP_LOGE(TAG, "mbedtls_ssl_setup returned %d", res);
         goto close_conn;
     }
 
-    ret = mbedtls_ssl_set_hostname(&ctx->ssl, OTA_SERVER);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_ssl_set_hostname returned %d", ret);
+    res = mbedtls_ssl_set_hostname(&ctx->ssl, OTA_SERVER);
+    if (res != 0) {
+        ESP_LOGE(TAG, "mbedtls_ssl_set_hostname returned %d", res);
         goto close_conn;
     }
 
@@ -165,17 +203,17 @@ https_conn_init(https_conn_context_t *ctx) {
             ESP_LOGD(TAG, "Handshake in progress");
             last_time = now;
         }
-        ret = mbedtls_ssl_handshake(&ctx->ssl);
-        if (ret == 0) {
+        res = mbedtls_ssl_handshake(&ctx->ssl);
+        if (res == 0) {
             break;
         }
-        if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
-            ESP_LOGE(TAG, "mbedtls_ssl_handshake returned -0x%x", -ret);
+        if ((res != MBEDTLS_ERR_SSL_WANT_READ) && (res != MBEDTLS_ERR_SSL_WANT_WRITE)) {
+            ESP_LOGE(TAG, "mbedtls_ssl_handshake returned -0x%x", -res);
             goto close_conn;
         }
     }
 
-    ret = mbedtls_ssl_get_verify_result(&ctx->ssl);
+    res = mbedtls_ssl_get_verify_result(&ctx->ssl);
     struct timeval tv;
     gettimeofday(&tv, NULL);
     if (tv.tv_sec < SOURCE_DATE_EPOCH) {
@@ -183,10 +221,10 @@ https_conn_init(https_conn_context_t *ctx) {
         // Either we reject all expired certs or we accept all of them.
         // For the sake of being able to do OTA without GPS, *HERE* we accept them,
         // but from security perspective this is a *BAD THING*.
-        ret &= ~MBEDTLS_X509_BADCERT_FUTURE;
+        res &= ~MBEDTLS_X509_BADCERT_FUTURE;
     }
-    if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_ssl_get_verify_result returned 0x%x", ret);
+    if (res != 0) {
+        ESP_LOGE(TAG, "mbedtls_ssl_get_verify_result returned 0x%x", res);
         goto close_conn;
     }
 
@@ -199,15 +237,15 @@ close_conn:
 }
 
 
-bool
+static bool
 send_buf(https_conn_context_t *ctx) {
     while (ctx->rdpos < ctx->wrpos) {
-        ssize_t ret = mbedtls_ssl_write(&ctx->ssl, ctx->rdpos, ctx->wrpos - ctx->rdpos);
-        if (ret >= 0) {
-            ctx->rdpos += ret;
+        ssize_t res = mbedtls_ssl_write(&ctx->ssl, ctx->rdpos, ctx->wrpos - ctx->rdpos);
+        if (res >= 0) {
+            ctx->rdpos += res;
         }
-        else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
-            ESP_LOGE(TAG, "mbedtls_ssl_write returned %d", ret);
+        else if ((res != MBEDTLS_ERR_SSL_WANT_READ) && (res != MBEDTLS_ERR_SSL_WANT_WRITE)) {
+            ESP_LOGE(TAG, "mbedtls_ssl_write returned %d", res);
             ctx->error = true;
             return false;
         }
@@ -218,29 +256,29 @@ send_buf(https_conn_context_t *ctx) {
 }
 
 
-ssize_t
+static ssize_t
 read_some(https_conn_context_t *ctx) {
     while (1) {
-        ssize_t ret = mbedtls_ssl_read(&ctx->ssl, ctx->wrpos, ctx->buf + BUFSIZE - ctx->wrpos);
+        ssize_t res = mbedtls_ssl_read(&ctx->ssl, ctx->wrpos, ctx->buf + BUFSIZE - ctx->wrpos);
 
-        if ((ret == MBEDTLS_ERR_SSL_WANT_READ) || (ret == MBEDTLS_ERR_SSL_WANT_WRITE)) {
+        if ((res == MBEDTLS_ERR_SSL_WANT_READ) || (res == MBEDTLS_ERR_SSL_WANT_WRITE)) {
             continue;
         }
 
-        if ((ret == 0) || (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)) {
+        if ((res == 0) || (res == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)) {
             return 0; // EOF
         }
 
-        if (ret < 0) {
-            ESP_LOGE(TAG, "mbedtls_ssl_read returned %d", ret);
-            return ret;
+        if (res < 0) {
+            ESP_LOGE(TAG, "mbedtls_ssl_read returned %d", res);
+            return res;
         }
-        return ret;
+        return res;
     }
 }
 
 
-bool
+static bool
 send_GET_request(https_conn_context_t *ctx, const char *path, const char *file_name) {
     ctx->rdpos = ctx->buf;
     ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n\r\n", path, file_name, OTA_SERVER);
@@ -252,7 +290,7 @@ send_GET_request(https_conn_context_t *ctx, const char *path, const char *file_n
 }
 
 
-unsigned char *
+static unsigned char *
 http_readline(https_conn_context_t *ctx) {
     unsigned char *eol;
 
@@ -282,13 +320,13 @@ http_readline(https_conn_context_t *ctx) {
     }
 
     while (ctx->wrpos < (ctx->buf + BUFSIZE)) {
-        ssize_t ret = read_some(ctx);
-        if (ret <= 0) { // either error or eof before eol
+        ssize_t res = read_some(ctx);
+        if (res <= 0) { // either error or eof before eol
             ctx->error = true;
             return NULL;
         }
-        eol = (unsigned char*)memchr(ctx->wrpos, '\n', ret); // search only in the data we read now
-        ctx->wrpos += ret; // move wrpos over this chunk
+        eol = (unsigned char*)memchr(ctx->wrpos, '\n', res); // search only in the data we read now
+        ctx->wrpos += res; // move wrpos over this chunk
         if (eol) {
             return terminate_line();
         }
@@ -298,7 +336,7 @@ http_readline(https_conn_context_t *ctx) {
 }
 
 
-int
+static int
 read_http_statusline(https_conn_context_t *ctx) {
     unsigned char *line = http_readline(ctx);
     if (!line) { // read error, too long line, etc.
@@ -313,7 +351,7 @@ read_http_statusline(https_conn_context_t *ctx) {
 }
 
 
-bool
+static bool
 read_http_header(https_conn_context_t *ctx, unsigned char **name, unsigned char **value) {
     if (ctx->content_remaining == 0) {
         return 0;
@@ -342,7 +380,7 @@ read_http_header(https_conn_context_t *ctx, unsigned char **name, unsigned char 
 }
 
 
-bool
+static bool
 read_http_body(https_conn_context_t *ctx, unsigned char **data, size_t *datalen) {
     if (ctx->content_remaining == 0) {
         return false;
@@ -358,15 +396,15 @@ read_http_body(https_conn_context_t *ctx, unsigned char **data, size_t *datalen)
         return true;
     }
 
-    ssize_t ret = read_some(ctx);
-    if (ret <= 0) { // eof or error
-        ctx->error |= (ret < 0);
+    ssize_t res = read_some(ctx);
+    if (res <= 0) { // eof or error
+        ctx->error |= (res < 0);
         return false;
     }
  
     *data = ctx->wrpos;
-    *datalen = ret;
-    ctx->content_remaining -= ret;
+    *datalen = res;
+    ctx->content_remaining -= res;
     return true;
 }
 
@@ -374,7 +412,7 @@ read_http_body(https_conn_context_t *ctx, unsigned char **data, size_t *datalen)
 void
 check_ota(void * pvParameters __attribute__((unused))) {
     time_t last_time, now;
-    int ret;
+    int res;
     nvs_handle nvs_firmware;
 
     ESP_LOGI(TAG, "Checking OTA");
@@ -387,15 +425,15 @@ check_ota(void * pvParameters __attribute__((unused))) {
     //LOG_PARTITION("Update", update);
 
     uint32_t current_mtime;
-    ret = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot open NVS: 0x%x", ret);
+    res = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot open NVS: 0x%x", res);
     }
     else {
-        ret = nvs_get_u32(nvs_firmware, running->label, &current_mtime);
+        res = nvs_get_u32(nvs_firmware, running->label, &current_mtime);
         nvs_close(nvs_firmware);
     }
-    if (ret != ESP_OK) {
+    if (res != ESP_OK) {
         ESP_LOGW(TAG, "Cannot find mtime for current partiton, assuming 0");
         current_mtime = 0;
     }
@@ -488,9 +526,9 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
 
         esp_ota_handle_t update_handle = 0 ;
-        ret = esp_ota_begin(update, fw_size, &update_handle);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "esp_ota_begin failed, error=%d", ret);
+        res = esp_ota_begin(update, fw_size, &update_handle);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_begin failed, error=%d", res);
             goto close_conn;
         }
 
@@ -504,9 +542,9 @@ check_ota(void * pvParameters __attribute__((unused))) {
                 last_time = now;
             }
             //hexdump(data, datalen);
-            ret = esp_ota_write(update_handle, data, datalen);
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "esp_ota_write failed, error=0x%x", ret);
+            res = esp_ota_write(update_handle, data, datalen);
+            if (res != ESP_OK) {
+                ESP_LOGE(TAG, "esp_ota_write failed, error=0x%x", res);
                 goto close_conn;
             }
 
@@ -520,9 +558,9 @@ check_ota(void * pvParameters __attribute__((unused))) {
         sum1 |= sum2 << 8;
 
         ESP_LOGD(TAG, "Finishing flashing");
-        ret = esp_ota_end(update_handle);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "esp_ota_end failed, error=0x%x", ret);
+        res = esp_ota_end(update_handle);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_end failed, error=0x%x", res);
             goto close_conn;
         }
         ESP_LOGD(TAG, "Finished flashing");
@@ -537,9 +575,9 @@ check_ota(void * pvParameters __attribute__((unused))) {
         for (ssize_t i = 0; i < fw_size; ++i) {
             ssize_t page = i / BUFSIZE;
             if (page != current_page) {
-                ret = spi_flash_read(update->address + (page * BUFSIZE), ctx.buf, BUFSIZE);
-                if (ret != ESP_OK) {
-                    ESP_LOGE(TAG, "flash read failed, error=0x%x", ret);
+                res = spi_flash_read(update->address + (page * BUFSIZE), ctx.buf, BUFSIZE);
+                if (res != ESP_OK) {
+                    ESP_LOGE(TAG, "flash read failed, error=0x%x", res);
                     goto close_conn;
                 }
                 current_page = page;
@@ -555,24 +593,24 @@ check_ota(void * pvParameters __attribute__((unused))) {
         }
 
         ESP_LOGD(TAG, "Setting boot partition");
-        ret = esp_ota_set_boot_partition(update);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "esp_ota_set_boot_partition failed, error=0x%x", ret);
+        res = esp_ota_set_boot_partition(update);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_set_boot_partition failed, error=0x%x", res);
             goto close_conn;
         }
 
         ESP_LOGD(TAG, "Updating firmware metadata");
-        ret = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Cannot open nvs: %d", ret);
+        res = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Cannot open nvs: %d", res);
         }
         else {
 #ifdef MULTI_IMAGES
-            ret = nvs_set_u32(nvs_firmware, update->label, fw_mtime);
+            res = nvs_set_u32(nvs_firmware, update->label, fw_mtime);
 #else
-            ret = nvs_set_u32(nvs_firmware, running->label, fw_mtime);
+            res = nvs_set_u32(nvs_firmware, running->label, fw_mtime);
 #endif // MULTI_IMAGES
-            if (ret != ESP_OK) {
+            if (res != ESP_OK) {
                 ESP_LOGW(TAG, "Cannot set mtime for update partiton");
             }
             nvs_close(nvs_firmware);

@@ -40,7 +40,7 @@ build/$(PROJECT_NAME).desc:		build/$(PROJECT_NAME).bin
 	./misc/gen_desc.py -i $< -o $@
 
 upload_binaries:	build/$(PROJECT_NAME).desc build/$(PROJECT_NAME).bin
-	#scp -C $^ pi@pi:/var/www/html/ota.wodeewa.com/out/
+	scp -C $^ pi@pi:/var/www/html/ota.wodeewa.com/out/
 
 app:		upload_binaries
 app-flash:	upload_binaries
