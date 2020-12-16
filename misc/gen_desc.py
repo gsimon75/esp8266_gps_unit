@@ -8,7 +8,8 @@ ap = argparse.ArgumentParser(
         description = "Generates a descriptor file for a partition image",
         )
 ap.add_argument("-i", "--input", required=True, help="the input partition image file")
-ap.add_argument("-o", "--output", help="the output descriptor file")
+ap.add_argument("-o", "--output", default="/dev/stdout", help="the output descriptor file")
+ap.add_argument("-e", "--source-epoch", help="the timestamp of the build")
 
 args = vars(ap.parse_args())
 
@@ -40,10 +41,11 @@ with open(args["input"], mode="rb") as f_in:
     if idx > 0:
         input_basename = input_basename[idx + 1:]
 
+    epoch = args["epoch"] if "epoch" in args else int(st.st_mtime);
 
     with open(args["output"], mode="wt") as f_out:
         print("name: {fn}".format(fn=input_basename), file=f_out)
-        print("mtime: {t}".format(t=int(st.st_mtime)), file=f_out)
+        print("mtime: {t}".format(t=epoch), file=f_out)
         print("size: {s}".format(s=st.st_size), file=f_out)
         print("fletcher16: {c}".format(c=fletcher16), file=f_out)
 

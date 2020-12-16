@@ -37,7 +37,7 @@ all_binaries: $(NVS_BIN)
 # Single-location image (ota_0 only) start
 #
 build/$(PROJECT_NAME).desc:		build/$(PROJECT_NAME).bin
-	./misc/gen_desc.py -i $< -o $@
+	./misc/gen_desc.py -i $< -e $(SOURCE_DATE_EPOCH) -o $@
 
 upload_binaries:	build/$(PROJECT_NAME).desc build/$(PROJECT_NAME).bin
 	scp -C $^ pi@pi:/var/www/html/ota.wodeewa.com/out/
