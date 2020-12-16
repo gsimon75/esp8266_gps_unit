@@ -456,6 +456,7 @@ got_ubx(const uint8_t *msg, size_t payload_len) {
                     }
                     else {
                         ESP_LOGI(TAG, "All init messages acknowledged");
+                        task_info();
                     }
                 }
                 else {
@@ -645,9 +646,8 @@ gps_init(void) {
     uart_driver_install(UART_NUM_0, UART_FIFO_LEN + 1, 0, 100, &uart0_queue, 0);
 
     baud_rate_watchdog_timer = xTimerCreate("gps", pdMS_TO_TICKS(3000), pdTRUE, NULL, try_next_baud_rate);
-    xTaskCreate(uart_event_task, "gps", 2048, NULL, 12, NULL);
+    xTaskCreate(uart_event_task, "gps", 1536, NULL, 12, NULL);
     xTimerStart(baud_rate_watchdog_timer, 0);
-
 
     return ESP_OK;
 }
