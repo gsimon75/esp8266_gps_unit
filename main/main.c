@@ -9,6 +9,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/event_groups.h>
+#include <freertos/esp_freertos_hooks.h>
 #include <rom/ets_sys.h>
 #include <driver/gpio.h>
 
@@ -46,7 +47,7 @@ event_handler(void *ctx, system_event_t *event) {
             printf("IP:%s\n", ip_s);
             ESP_LOGI(TAG, "STA_GOT_IP %s", ip_s);
             xEventGroupSetBits(main_event_group, WIFI_CONNECTED_BIT);
-            xTaskCreate(check_ota, "ota", 12 * 1024, NULL, 5, NULL);
+            xTaskCreate(check_ota, "ota", 6 * 1024, NULL, 5, NULL);
             break;
         }
 
@@ -230,7 +231,7 @@ gpio_debouncer_remove(int gpio_num) {
 static void
 button_init() {
     gpio_evt_queue = xQueueCreate(GPIO_NUM_MAX, sizeof(uint8_t));
-    xTaskCreate(gpio_process_task, "gpio", 2048, NULL, 10, NULL);
+    xTaskCreate(gpio_process_task, "gpio", 512, NULL, 10, NULL);
     gpio_install_isr_service(0);
 
     gpio_config_t io_conf = {
@@ -280,11 +281,17 @@ screen_test(void) {
     */
 }
 
+static bool
+test_idle() {
+    ++idle_counter;
+    return true;
+}
 
 void
 app_main()
 {
-    ESP_LOGI(TAG, "Start");
+    ESP_LOGI(TAG, "main start");
+    esp_register_freertos_idle_hook(test_idle);
 
     ssd1306_init(SSD1306_I2C, 4, 5);
     lcd_init(SSD1306_I2C);
@@ -300,6 +307,8 @@ app_main()
         chip_info.cores, chip_info.revision, spi_flash_get_chip_size() / (1024 * 1024),
         (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
     printf("Cores:%d, Flash:%dMB\n", chip_info.cores, spi_flash_get_chip_size() >> 20);
+
+    task_info();
 
     //Initialize NVS
     esp_err_t res = nvs_flash_init();
@@ -334,14 +343,18 @@ app_main()
     }
 
     button_init(); // for admin mode
+    task_info();
 
     if (wifi_init_sta()) {
-        //xEventGroupWaitBits(main_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
+        xEventGroupWaitBits(main_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
         //xTaskCreate(report_status, "report", 12 * 1024, NULL, 5, NULL);
     }
 
     ESP_LOGI(TAG, "Up and running");
     printf("Ready\n");
+    task_info();
     gps_init();
+    ESP_LOGI(TAG, "main done");
+    task_info();
 }
 // vim: set sw=4 ts=4 indk= et si:

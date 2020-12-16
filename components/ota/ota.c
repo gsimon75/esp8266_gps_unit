@@ -101,6 +101,9 @@ https_conn_init(https_conn_context_t *ctx) {
     mbedtls_net_init(&ctx->ssl_ctx);
     mbedtls_ssl_init(&ctx->ssl);
     mbedtls_ssl_config_init(&ctx->conf);
+#ifdef CONFIG_MBEDTLS_DEBUG
+    mbedtls_esp_enable_debug_log(&ctx->conf, 4);
+#endif // CONFIG_MBEDTLS_DEBUG
     mbedtls_x509_crt_init(&ctx->cacert);
     mbedtls_x509_crt_init(&ctx->client_cert);
     mbedtls_pk_init(&ctx->client_pkey);
@@ -441,6 +444,7 @@ check_ota(void * pvParameters __attribute__((unused))) {
     https_conn_context_t ctx;
 
     ESP_LOGI(TAG, "Connecting to OTA server");
+    task_info();
     if (!https_conn_init(&ctx)) {
         goto close_conn;
     }
@@ -623,9 +627,10 @@ check_ota(void * pvParameters __attribute__((unused))) {
     }
 
 close_conn:
+    ESP_LOGI(TAG, "OTA check done");
+    task_info();
     https_conn_destroy(&ctx);
 
-    ESP_LOGI(TAG, "OTA check done");
     xEventGroupSetBits(main_event_group, OTA_CHECK_DONE_BIT);
     vTaskDelete(NULL);
 }

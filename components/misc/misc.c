@@ -1,5 +1,8 @@
 #include "misc.h"
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 #undef LOG_LOCAL_LEVEL
 #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
@@ -17,6 +20,7 @@ static const int _DAYS_BEFORE_MONTH[12] = {0, 31, 59, 90, 120, 151, 181, 212, 24
 #define _DAYS_IN_YEAR(year) (_ISLEAP(year) ? 366 : 365)
 
 static const char *TAG = "misc";
+uint32_t idle_counter = 0;
 
 time_t 
 timegm(struct tm *tim_p)
@@ -81,5 +85,23 @@ hexdump(const uint8_t *data, ssize_t len) {
     }
 }
 
+void
+task_info(void) {
+    UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
+    ESP_LOGD(TAG, "num_tasks: %u, idle_counter=%u", num_tasks, idle_counter);
+    char *buf = (char*) malloc(48 * num_tasks);
+    if (!buf) {
+        ESP_LOGE(TAG, "Failed to allocate task info buffer");
+        return;
+    }
+    vTaskList(buf);
+
+    ESP_LOGD(TAG, "Tasks:\n%s", buf);
+    free(buf);
+
+    /*struct mallinfo mi = mallinfo();
+    ESP_LOGD(TAG, "mem heap=%u, hwm=%u, alloc=%u, free=%u", mi.arena, mi.usmblks, mi.uordblks, mi.fordblks);*/
+
+}
 
 // vim: set sw=4 ts=4 indk= et si:
