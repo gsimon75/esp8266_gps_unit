@@ -41,7 +41,7 @@ with open(args["input"], mode="rb") as f_in:
     if idx > 0:
         input_basename = input_basename[idx + 1:]
 
-    epoch = args["epoch"] if "epoch" in args else int(st.st_mtime);
+    epoch = args["source_epoch"] if "source_epoch" in args else int(st.st_mtime);
 
     with open(args["output"], mode="wt") as f_out:
         print("name: {fn}".format(fn=input_basename), file=f_out)

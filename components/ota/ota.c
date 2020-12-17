@@ -278,16 +278,11 @@ read_some(https_conn_context_t *ctx) {
 
 static bool
 send_GET_request(https_conn_context_t *ctx, const char *server, const char *path, const char *file_name) {
-    ESP_LOGD(TAG, "OTA_SERVER_NAME='%s'", OTA_SERVER_NAME);
-    ESP_LOGD(TAG, "OTA_SERVER_PORT='%s'", OTA_SERVER_PORT);
-    ESP_LOGD(TAG, "OTA_PATH='%s'", OTA_PATH);
-    ESP_LOGD(TAG, "OTA_DESCRIPTOR_FILENAME='%s'", OTA_DESCRIPTOR_FILENAME);
-
     ctx->rdpos = ctx->buf;
     ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n\r\n", path, file_name, server);
     ctx->content_length = 0;
     ctx->content_remaining = 0xffffffff; // no known read limit on header length
-    ESP_LOGD(TAG, "Request:\n%s", ctx->buf);
+    //ESP_LOGD(TAG, "Request:\n%s", ctx->buf);
     return send_buf(ctx);
 
 }
