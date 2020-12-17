@@ -6,3 +6,5 @@ ssl,namespace,,
 pkey,file,binary,/proc/self/cwd/nvs_data/client.key.der
 cert,file,binary,/proc/self/cwd/nvs_data/client.crt.der
 cacert,file,binary,/proc/self/cwd/nvs_data/ota.ca.der
+ota,namespace,,
+url,data,string,https://ota.wodeewa.com/out/gps-unit.desc
