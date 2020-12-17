@@ -298,15 +298,15 @@ app_main()
 
     //screen_test();
     lcd_gotoxy(0, 2);
-    printf("GPS unit starting\n");
+    printf("FW %u\n", SOURCE_DATE_EPOCH);
 
     /* Print chip information */
-    esp_chip_info_t chip_info;
-    esp_chip_info(&chip_info);
-    ESP_LOGI(TAG, "This is ESP8266 chip with %d CPU cores, WiFi, silicon revision %d, %dMB %s flash\n",
-        chip_info.cores, chip_info.revision, spi_flash_get_chip_size() / (1024 * 1024),
-        (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
-    printf("Cores:%d, Flash:%dMB\n", chip_info.cores, spi_flash_get_chip_size() >> 20);
+    {
+        esp_chip_info_t chip_info;
+        esp_chip_info(&chip_info);
+        ESP_LOGI(TAG, "Cores: %d, Flash: %d MB", chip_info.cores, spi_flash_get_chip_size() / (1024 * 1024));
+        printf("Cores:%d, Flash:%dMB\n", chip_info.cores, spi_flash_get_chip_size() >> 20);
+    }
 
     task_info();
 
