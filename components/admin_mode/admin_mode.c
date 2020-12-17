@@ -17,7 +17,7 @@
 #include <esp_wifi.h>
 #include <esp_http_server.h>
 #include <esp_base64.h>
-#include <nvs_flash.h>
+#include <nvs.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -533,7 +533,21 @@ http_post_ssl_pkey(httpd_req_t *req) {
     if (!httpd_check_content_type(req, "application/pkcs8")) {
         return httpd_resp_empty(req, HTTPD_415);
     }
-    hexdump(body, req->content_len);
+
+    nvs_handle nvs_ssl;
+    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs_ssl);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_blob(nvs_ssl, "pkey", body, req->content_len);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write SSL pkey to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs_ssl);
+    ESP_LOGI(TAG, "New SSL pkey (len=%d)", req->content_len);
+    //hexdump(body, req->content_len);
     free(body);
     return httpd_resp_empty(req, HTTPD_204);
 }
@@ -558,7 +572,21 @@ http_post_ssl_cert(httpd_req_t *req) {
     if (!httpd_check_content_type(req, "application/x-x509-user-cert")) {
         return httpd_resp_empty(req, HTTPD_415);
     }
-    hexdump(body, req->content_len);
+
+    nvs_handle nvs_ssl;
+    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs_ssl);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_blob(nvs_ssl, "cert", body, req->content_len);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write SSL cert to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs_ssl);
+    ESP_LOGI(TAG, "New SSL cert (len=%d)", req->content_len);
+    //hexdump(body, req->content_len);
     free(body);
     return httpd_resp_empty(req, HTTPD_204);
 }
@@ -583,7 +611,21 @@ http_post_ssl_cacert(httpd_req_t *req) {
     if (!httpd_check_content_type(req, "application/x-x509-ca-cert")) {
         return httpd_resp_empty(req, HTTPD_415);
     }
-    hexdump(body, req->content_len);
+
+    nvs_handle nvs_ssl;
+    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs_ssl);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_blob(nvs_ssl, "cacert", body, req->content_len);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write SSL cacert to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs_ssl);
+    ESP_LOGI(TAG, "New SSL cacert (len=%d)", req->content_len);
+    //hexdump(body, req->content_len);
     free(body);
     return httpd_resp_empty(req, HTTPD_204);
 }
@@ -605,11 +647,27 @@ http_post_ota_url(httpd_req_t *req) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
-    // D (289555) admin: Request body '{"ota_url":"https://ota.wodeewa.com/out/gps-unit.desc"}'
-    if (!get_body_field(body, "ota_url", value, sizeof(value))) {
+    // D (289555) admin: Request body '{"ota_url":"https://ota.wodeewa.com/out"}'
+    if (!get_body_field(body, "ota_url", value, sizeof(value))
+        || !decode_json_string(value)
+        ) {
         return httpd_resp_empty(req, HTTPD_400);
     }
-    ESP_LOGD(TAG, "Received value '%s'", value);
+
+    nvs_handle nvs_ota;
+    esp_err_t res = nvs_open("ota", NVS_READWRITE, &nvs_ota);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent OTA config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_str(nvs_ota, "url", value);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write OTA URL to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs_ota);
+    ESP_LOGI(TAG, "New OTA URL '%s'", value);
+
     return httpd_resp_empty(req, HTTPD_204);
 }
 

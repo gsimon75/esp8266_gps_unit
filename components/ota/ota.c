@@ -16,20 +16,14 @@
 #include <esp_tls.h>
 #include <esp_ota_ops.h>
 
-#include <nvs_flash.h>
+#include <nvs.h>
 
 #include <string.h>
 #include <ctype.h>
 
 static const char *TAG = "ota";
 
-static const char OTA_SERVER[] = "ota.wodeewa.com";
-static const char OTA_FIRMWARE_PATH[] = "/out/";
-#ifdef MULTI_IMAGES
-/static const char OTA_FIRMWARE_DESC[] = STR(PROJECT_NAME) ".ota_%d.desc"; // arg: ota partition index
-#else
-static const char OTA_FIRMWARE_DESC[] = STR(PROJECT_NAME) ".desc"; // arg: ota partition index
-#endif // MULTI_IMAGES
+static char *OTA_SERVER_NAME, *OTA_SERVER_PORT, *OTA_PATH, *OTA_DESCRIPTOR_FILENAME;
 
 #define BUFSIZE 512
 
@@ -118,9 +112,9 @@ https_conn_init(https_conn_context_t *ctx) {
         goto close_conn;
     }
 
-    nvs_handle nvs_ssl;
+    nvs_handle nvs;
 
-    res = nvs_open("ssl", NVS_READONLY, &nvs_ssl);
+    res = nvs_open("ssl", NVS_READONLY, &nvs);
     if (res != ESP_OK) {
         ESP_LOGW(TAG, "Cannot find persistent SSL config: %d", res);
         // proceed without client-side cert
@@ -129,7 +123,7 @@ https_conn_init(https_conn_context_t *ctx) {
         uint8_t *blob = NULL;
         size_t bloblen = 0;
 
-        if (get_blob(nvs_ssl, "cacert", &blob, &bloblen)) {
+        if (get_blob(nvs, "cacert", &blob, &bloblen)) {
             res = mbedtls_x509_crt_parse_der(&ctx->cacert, blob, bloblen);
             if (res < 0) {
                 ESP_LOGW(TAG, "Failed to parse cacert: -0x%x", -res);
@@ -139,7 +133,7 @@ https_conn_init(https_conn_context_t *ctx) {
             bloblen = 0;
         }
 
-        if (get_blob(nvs_ssl, "cert", &blob, &bloblen)) {
+        if (get_blob(nvs, "cert", &blob, &bloblen)) {
             res = mbedtls_x509_crt_parse_der(&ctx->client_cert, blob, bloblen);
             if (res < 0) {
                 ESP_LOGW(TAG, "Failed to parse cert: -0x%x", -res);
@@ -149,7 +143,7 @@ https_conn_init(https_conn_context_t *ctx) {
             bloblen = 0;
         }
 
-        if (get_blob(nvs_ssl, "pkey", &blob, &bloblen)) {
+        if (get_blob(nvs, "pkey", &blob, &bloblen)) {
             res = mbedtls_pk_parse_key(&ctx->client_pkey, blob, bloblen, NULL, 0);
             if (res < 0) {
                 ESP_LOGW(TAG, "Failed to parse pkey: -0x%x", -res);
@@ -158,9 +152,10 @@ https_conn_init(https_conn_context_t *ctx) {
             blob = NULL;
             bloblen = 0;
         }
+        nvs_close(nvs);
     }
 
-    res = mbedtls_net_connect(&ctx->ssl_ctx, OTA_SERVER, "443", MBEDTLS_NET_PROTO_TCP);
+    res = mbedtls_net_connect(&ctx->ssl_ctx, OTA_SERVER_NAME, OTA_SERVER_PORT, MBEDTLS_NET_PROTO_TCP);
     if (res != 0) {
         ESP_LOGE(TAG, "mbedtls_net_connect returned %d", res);
         goto close_conn;
@@ -191,7 +186,7 @@ https_conn_init(https_conn_context_t *ctx) {
         goto close_conn;
     }
 
-    res = mbedtls_ssl_set_hostname(&ctx->ssl, OTA_SERVER);
+    res = mbedtls_ssl_set_hostname(&ctx->ssl, OTA_SERVER_NAME);
     if (res != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_set_hostname returned %d", res);
         goto close_conn;
@@ -282,12 +277,17 @@ read_some(https_conn_context_t *ctx) {
 
 
 static bool
-send_GET_request(https_conn_context_t *ctx, const char *path, const char *file_name) {
+send_GET_request(https_conn_context_t *ctx, const char *server, const char *path, const char *file_name) {
+    ESP_LOGD(TAG, "OTA_SERVER_NAME='%s'", OTA_SERVER_NAME);
+    ESP_LOGD(TAG, "OTA_SERVER_PORT='%s'", OTA_SERVER_PORT);
+    ESP_LOGD(TAG, "OTA_PATH='%s'", OTA_PATH);
+    ESP_LOGD(TAG, "OTA_DESCRIPTOR_FILENAME='%s'", OTA_DESCRIPTOR_FILENAME);
+
     ctx->rdpos = ctx->buf;
-    ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n\r\n", path, file_name, OTA_SERVER);
+    ctx->wrpos = ctx->buf + snprintf(ctx->buf, BUFSIZE, "GET %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n\r\n", path, file_name, server);
     ctx->content_length = 0;
     ctx->content_remaining = 0xffffffff; // no known read limit on header length
-    //ESP_LOGD(TAG, "Request: '%s'", ctx->buf);
+    ESP_LOGD(TAG, "Request:\n%s", ctx->buf);
     return send_buf(ctx);
 
 }
@@ -415,33 +415,94 @@ read_http_body(https_conn_context_t *ctx, unsigned char **data, size_t *datalen)
 void
 check_ota(void * pvParameters __attribute__((unused))) {
     time_t last_time, now;
-    int res;
-    nvs_handle nvs_firmware;
+    esp_err_t res;
 
     ESP_LOGI(TAG, "Checking OTA");
     printf("Checking OTA...\n");
 
-    const esp_partition_t *running = esp_ota_get_running_partition();
-    //LOG_PARTITION("Running", running);
-
     const esp_partition_t *update = esp_ota_get_next_update_partition(NULL);
     //LOG_PARTITION("Update", update);
 
-    uint32_t current_mtime;
-    res = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
+    https_conn_context_t ctx;
+    
+    char *url = NULL;
+
+    nvs_handle nvs;
+
+    res = nvs_open("ota", NVS_READONLY, &nvs);
     if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot open NVS: 0x%x", res);
+        ESP_LOGE(TAG, "Cannot find persistent OTA config: %d", res);
+        printf("OTA NVS error\n");
+        goto close_conn;
     }
     else {
-        res = nvs_get_u32(nvs_firmware, running->label, &current_mtime);
-        nvs_close(nvs_firmware);
-    }
-    if (res != ESP_OK) {
-        ESP_LOGW(TAG, "Cannot find mtime for current partiton, assuming 0");
-        current_mtime = 0;
+        size_t url_len;
+        res = nvs_get_str(nvs, "url", NULL, &url_len);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Cannot find OTA URL in persistent config: %d", res);
+            printf("OTA URL error\n");
+            nvs_close(nvs);
+            goto close_conn;
+        }
+        url = (char*)malloc(url_len + 1);
+        if (!url) {
+            ESP_LOGE(TAG, "Out of memory");
+            printf("OTA mem error\n");
+            nvs_close(nvs);
+            goto close_conn;
+        }
+        nvs_get_str(nvs, "url", url, &url_len);
+        url[url_len] = '\0';
+        ESP_LOGI(TAG, "OTA URL (len=%d) '%s'", url_len, url);
+        nvs_close(nvs);
     }
 
-    https_conn_context_t ctx;
+    if (strncmp("https://", url, 8)) {
+        ESP_LOGE(TAG, "Won't accept firmware from insecure source");
+        printf("OTA security error\n");
+        goto close_conn;
+    }
+
+    // separate server name(:port) and path
+    // NOTE: no new allocations, so only @url will have to be freed
+    char *first_slash = strchr(url + 8, '/');
+    if (first_slash) {
+        // need a zero between the name and the path, so overwrite "https://", it won't be needed anyway
+        size_t len = first_slash - (url + 8);
+        memcpy(url, url + 8, len);
+        url[len] = '\0';
+        OTA_SERVER_NAME = url;
+
+        // need a zero between the path and the filename as well, so move back the path too
+        char *last_slash = strrchr(first_slash, '/');
+        if (!last_slash[1]) {
+            // just a path, no filename: no need to move anything
+            OTA_PATH = first_slash;
+            OTA_DESCRIPTOR_FILENAME = "";
+        }
+        else {
+            OTA_PATH = url + len + 1;
+            len = last_slash - first_slash + 1;
+            memcpy(OTA_PATH, first_slash, len);
+            OTA_PATH[len] = '\0';
+            OTA_DESCRIPTOR_FILENAME = last_slash + 1;
+        }
+    }
+    else {
+        // no path: the part after "https://" is the server name
+        OTA_SERVER_NAME = url + 8;
+        OTA_PATH = "/";
+        OTA_DESCRIPTOR_FILENAME = "";
+    }
+
+    // separate name and port
+    OTA_SERVER_PORT = strchr(OTA_SERVER_NAME, ':'); // FIXME: no support for "user:pwd@hostname:port"
+    if (OTA_SERVER_PORT) {
+        *(OTA_SERVER_PORT++) = '\0';
+    }
+    else {
+        OTA_SERVER_PORT = "443";
+    }
 
     ESP_LOGI(TAG, "Connecting to OTA server");
     task_info();
@@ -466,13 +527,15 @@ check_ota(void * pvParameters __attribute__((unused))) {
 
     ESP_LOGI(TAG, "Getting OTA descriptor");
 #ifdef MULTI_IMAGES
-    snprintf(fw_name, sizeof(fw_name), OTA_FIRMWARE_DESC, update->subtype - ESP_PARTITION_SUBTYPE_APP_OTA_MIN);
-#else
-    snprintf(fw_name, sizeof(fw_name), OTA_FIRMWARE_DESC);
-#endif // MULTI_IMAGES
-    if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH, fw_name)) {
+    snprintf(fw_name, sizeof(fw_name), OTA_DESCRIPTOR_FILENAME, update->subtype - ESP_PARTITION_SUBTYPE_APP_OTA_MIN);
+    if (!send_GET_request(&ctx, OTA_SERVER_NAME, OTA_PATH, fw_name)) {
         goto close_conn;
     }
+#else
+    if (!send_GET_request(&ctx, OTA_SERVER_NAME, OTA_PATH, OTA_DESCRIPTOR_FILENAME)) {
+        goto close_conn;
+    }
+#endif // MULTI_IMAGES
 
     status = read_http_statusline(&ctx);
     if (status != 200) {
@@ -502,15 +565,16 @@ check_ota(void * pvParameters __attribute__((unused))) {
     }
     ESP_LOGI(TAG, "OTA descriptor end");
 
-    if (fw_mtime <= current_mtime) {
+    if (fw_mtime <= SOURCE_DATE_EPOCH) {
         ESP_LOGI(TAG, "Current firmware is up-to-date");
         printf("Firmware up-to-date\n");
     }
     else if (fw_name[0]) { // get the firmware binary
+        ESP_LOGI(TAG, "Current firmware: %u, available: %lu", SOURCE_DATE_EPOCH, fw_mtime);
         uint16_t sum1, sum2; // Fletcher16: don't want to deal with odd-bytes-long chunks
 
         ESP_LOGI(TAG, "Getting OTA binary '%s'", fw_name);
-        if (!send_GET_request(&ctx, OTA_FIRMWARE_PATH, fw_name)) {
+        if (!send_GET_request(&ctx, OTA_SERVER_NAME, OTA_PATH, fw_name)) {
             goto close_conn;
         }
 
@@ -603,23 +667,6 @@ check_ota(void * pvParameters __attribute__((unused))) {
             goto close_conn;
         }
 
-        ESP_LOGD(TAG, "Updating firmware metadata");
-        res = nvs_open("firmware", NVS_READWRITE, &nvs_firmware);
-        if (res != ESP_OK) {
-            ESP_LOGE(TAG, "Cannot open nvs: %d", res);
-        }
-        else {
-#ifdef MULTI_IMAGES
-            res = nvs_set_u32(nvs_firmware, update->label, fw_mtime);
-#else
-            res = nvs_set_u32(nvs_firmware, running->label, fw_mtime);
-#endif // MULTI_IMAGES
-            if (res != ESP_OK) {
-                ESP_LOGW(TAG, "Cannot set mtime for update partiton");
-            }
-            nvs_close(nvs_firmware);
-        }
-
         ESP_LOGI(TAG, "OTA binary end, restarting");
         printf("Firmware update OK\n");
         printf("Restarting...\n");
@@ -629,6 +676,11 @@ check_ota(void * pvParameters __attribute__((unused))) {
 close_conn:
     ESP_LOGI(TAG, "OTA check done");
     task_info();
+
+    if (url) {
+        free(url);
+        url = NULL;
+    }
     https_conn_destroy(&ctx);
 
     xEventGroupSetBits(main_event_group, OTA_CHECK_DONE_BIT);
