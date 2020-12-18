@@ -167,5 +167,4 @@ const uint8_t font6x8[] = {
 
 #endif
 
-
 // vim: set sw=4 ts=4 indk= et si:
