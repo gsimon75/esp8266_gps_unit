@@ -102,3 +102,4 @@ lr_read_chunk(line_reader_t *self, unsigned char **data, size_t *datalen) {
     return true;
 }
 
+// vim: set sw=4 ts=4 indk= et si:
