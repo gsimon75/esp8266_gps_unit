@@ -38,7 +38,7 @@ lcd_putchar(int col, int row, char c) {
         c = 0x20;
     }
     col *= 6;
-    ssd1306_set_range(the_port, col, col + 5, row, row);
+    ssd1306_set_range(the_port, col + 2, col + 2 + 5, row, row);
     ssd1306_send_data(the_port, &font6x8[6 * (c - 0x20)], 6);
 }
 
@@ -49,7 +49,7 @@ lcd_puts(int col, int row, const char *s) {
         return;
     }
     col *= 6;
-    ssd1306_set_range(the_port, col, 127, row, row);
+    ssd1306_set_range(the_port, col + 2, 127, row, row);
     static uint8_t send_data_cmd[] = {
         0x78, 0x40,
     };
@@ -94,6 +94,14 @@ lcd_write(void *cookie, const char *buf, int n) {
                 col = 0;
                 break;
             default:
+                if (col == 0) { // clear that row
+                    int prev_row = (row + MAXROW - 1) % MAXROW;
+                    ssd1306_set_range(the_port, 0, 0, prev_row, prev_row);
+                    ssd1306_send_data_byte(the_port, 0);
+                    ssd1306_set_range(the_port, 0, 127, row, row);
+                    ssd1306_send_data_byte(the_port, 0x18);
+                    ssd1306_memset(the_port, 0, 127);
+                }
                 lcd_putchar(col, row, *buf);
                 ++col;
                 if (col >= MAXCOL) {

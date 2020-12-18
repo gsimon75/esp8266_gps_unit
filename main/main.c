@@ -246,7 +246,8 @@ button_init() {
 }
 
 
-void
+#ifdef SCREEN_TEST
+static void
 screen_test(void) {
 
     // Binary pattern to page 7 (== rows 56..63)
@@ -275,11 +276,10 @@ screen_test(void) {
         printf("%3d\n", i);
     }
 
-    /*
     lcd_clear();
     lcd_qr("https://en.wikipedia.org/wiki/ESP8266", -1);
-    */
 }
+#endif // SCREEN_TEST
 
 static bool
 test_idle() {
@@ -296,8 +296,10 @@ app_main()
     ssd1306_init(SSD1306_I2C, 4, 5);
     lcd_init(SSD1306_I2C);
 
-    //screen_test();
-    lcd_gotoxy(0, 2);
+#ifdef SCREEN_TEST
+    screen_test();
+#endif // SCREEN_TEST
+   
     printf("FW %u\n", SOURCE_DATE_EPOCH);
 
     /* Print chip information */
