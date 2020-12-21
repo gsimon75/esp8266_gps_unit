@@ -1,0 +1,28 @@
+{
+  "name": "gps-tracker-backend",
+  "version": "0.0.1",
+  "description": "GPS Tracker data backend API",
+  "author": "Gabor Simon <gabor.simon75@gmail.com>",
+  "license": "Unlicense",
+  "private": true,
+  "scripts": {
+    "serve": "node index.js",
+    "test": "mocha --timeout 5000 tests/*.test.js"
+  },
+  "dependencies": {
+    "connect-mongodb-session": "^2.4.1",
+    "express": "^4.16.3",
+    "express-session": "^1.17.1",
+    "firebase-admin": "^9.1.1",
+    "log4js": "^3.0.2",
+    "mongodb": "^3.6.3"
+  },
+  "devDependencies": {
+    "chai": "^4.2.0",
+    "chai-http": "^4.3.0",
+    "chai-json": "^1.0.0",
+    "chai-like": "^1.1.1",
+    "chai-things": "^0.2.0",
+    "mocha": "^8.1.3"
+  }
+}
