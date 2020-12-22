@@ -1,6 +1,6 @@
 #include "gps.h"
-#include "line_reader.h"
 #include "oled_stdout.h"
+#include "main.h"
 #include "misc.h"
 
 #include <freertos/FreeRTOS.h>
@@ -94,8 +94,10 @@ process_new_fix(void) {
     // FIXME: fire an event
     // FIXME: tune the clock
 
-    lcd_gotoxy(0, 2);
-    printf("%d, %5.3f, %5.3f, %lu", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (unsigned long)(gps_fix.time_usec / 1e6));
+    xEventGroupSetBits(main_event_group, GOT_GPS_FIX_BIT);
+    xEventGroupClearBits(main_event_group, GOT_GPS_FIX_BIT);
+
+    printf("\r%d, %5.3f, %5.3f, %lu", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (unsigned long)(gps_fix.time_usec / 1e6));
 }
 
 

@@ -4,6 +4,7 @@
 #include "oled_stdout.h"
 #include "gps.h"
 #include "admin_mode.h"
+#include "location_reporter.h"
 #include "misc.h"
 
 #include <freertos/FreeRTOS.h>
@@ -47,7 +48,7 @@ event_handler(void *ctx, system_event_t *event) {
             printf("IP:%s\n", ip_s);
             ESP_LOGI(TAG, "STA_GOT_IP %s", ip_s);
             xEventGroupSetBits(main_event_group, WIFI_CONNECTED_BIT);
-            xTaskCreate(check_ota, "ota", 6 * 1024, NULL, 5, NULL);
+            xTaskCreate(ota_check_task, "ota", 6 * 1024, NULL, 5, NULL);
             break;
         }
 
@@ -349,7 +350,8 @@ app_main()
 
     if (wifi_init_sta()) {
         xEventGroupWaitBits(main_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
-        //xTaskCreate(report_status, "report", 12 * 1024, NULL, 5, NULL);
+        xTaskCreate(location_reporter_task, "lrep", 12 * 1024, NULL, 5, NULL);
+        xEventGroupWaitBits(main_event_group, LREP_RUNNING_BIT, false, true, portMAX_DELAY);
     }
 
     ESP_LOGI(TAG, "Up and running");

@@ -41,7 +41,7 @@ build/$(PROJECT_NAME).desc:		build/$(PROJECT_NAME).bin
 	./misc/gen_desc.py -i $< -e $(SOURCE_DATE_EPOCH) -o $@
 
 upload_binaries:	build/$(PROJECT_NAME).desc build/$(PROJECT_NAME).bin
-	scp -C $^ pi@pi:/var/www/html/ota.wodeewa.com/out/
+	scp -C $^ wodeewa.com:src/esp8266_gps_unit/backend/ota/
 
 app:		upload_binaries
 app-flash:	upload_binaries

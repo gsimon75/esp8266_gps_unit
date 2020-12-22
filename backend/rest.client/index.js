@@ -1,8 +1,7 @@
 const express = require("express");
 const router = express.Router();
-const os = require("os");
 const db = require("../database");
-const logger = require("../logger").getLogger("rest");
+const logger = require("../logger").getLogger("client");
 const utils = require("../utils");
 
 
@@ -10,12 +9,6 @@ function op_healthz(req) {
     logger.debug("GET healthz");
     //utils.dump_request(req);
     return Promise.resolve(utils.result(200, "ok"));
-}
-
-
-function op_healthz_hostname(req) {
-    logger.debug("GET healthz/hostname");
-    return Promise.resolve(utils.result(200, os.hostname()));
 }
 
 
@@ -41,7 +34,6 @@ function op_logout(req) {
 
 // health check for load balancers
 router.get("/healthz",          (req, res, next) => utils.mwrap(req, res, next, () => op_healthz(req)));
-router.get("/healthz/hostname", (req, res, next) => utils.mwrap(req, res, next, () => op_healthz_hostname(req)));
 
 // client session handling (mostly for testing)
 router.get("/whoami",           (req, res, next) => utils.mwrap(req, res, next, () => op_whoami(req)));
@@ -49,13 +41,8 @@ router.get("/logout",           (req, res, next) => utils.mwrap(req, res, next, 
 
 // client ops
 //router.use("/station", require("./station"));
-//router.use("/available", require("./available")); // available units
+router.use("/available", require("./available")); // available units
 
-// unit ops
-//router.use("/report", require("./report"));
-
-// admin ops
-router.use("/unit", require("./unit"));
 
 module.exports = router;
 

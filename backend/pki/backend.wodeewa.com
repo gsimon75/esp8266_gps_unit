@@ -41,7 +41,7 @@ server {
 			return 403;
 		}
 		autoindex off;
-		root /home/fules/src/esp8266_gps_unit/;
+		root /home/fules/src/esp8266_gps_unit/backend/;
 	}
 
 }
