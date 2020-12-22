@@ -7,4 +7,8 @@ pkey,file,binary,/proc/self/cwd/nvs_data/client.key.der
 cert,file,binary,/proc/self/cwd/nvs_data/client.crt.der
 cacert,file,binary,/proc/self/cwd/nvs_data/ota.ca.der
 ota,namespace,,
-url,data,string,https://ota.wodeewa.com/out/gps-unit.desc
+url,data,string,https://backend.wodeewa.com/ota/gps-unit.desc
+server,namespace,
+url,data,string,https://backend.wodeewa.com/v0/report
+time_threshold,data,u16,10
+distance_threshold,data,u16,15

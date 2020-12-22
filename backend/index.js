@@ -54,7 +54,9 @@ const process_auth = require("./process_auth");
 app.use((req, res, next) => utils.mwrap(req, res, next, process_auth(req)));
 
 // Register routers
-app.use("/v0", require("./rest"));
+app.use("/client/v0", require("./rest.client"));
+app.use("/backend/v0", require("./rest.backend"));
+app.use("/admin/v0", require("./rest.admin"));
 
 // Catch 404 and forward to error handler
 app.use((req, res, next) => {
