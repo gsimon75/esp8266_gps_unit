@@ -310,7 +310,7 @@ app_main()
     screen_test();
 #endif // SCREEN_TEST
    
-    printf("FW %u\n", SOURCE_DATE_EPOCH);
+    printf("FW %u\n", source_date_epoch);
 
     /* Print chip information */
     {
