@@ -1,4 +1,4 @@
-build
-sdkconfig.old
+unit/build
+unit/sdkconfig.old
 backend/node_modules
 

@@ -9,6 +9,7 @@
 
 #include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 static const char *TAG = "httpscli";
 
@@ -41,6 +42,7 @@ void
 https_conn_destroy(https_conn_context_t *ctx) {
     mbedtls_ssl_close_notify(&ctx->ssl);
     mbedtls_net_free(&ctx->ssl_ctx);
+    mbedtls_x509_crt_free(&ctx->client_cert);
     mbedtls_x509_crt_free(&ctx->cacert);
     mbedtls_ssl_free(&ctx->ssl);
     mbedtls_ssl_config_free(&ctx->conf);
@@ -240,14 +242,41 @@ read_some(https_conn_context_t *ctx) {
 
 
 bool
-https_send_request(https_conn_context_t *ctx, const char *method, const char *server, const char *path, const char *resource) {
-    ctx->rdpos = ctx->buf;
-    ctx->wrpos = ctx->buf + snprintf(ctx->buf, HTTPS_CLIENT_BUFSIZE, "%s %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n\r\n", method, path, resource, server);
+https_send_request(https_conn_context_t *ctx, const char *method, const char *server, const char *path, const char *resource, const char *extra_headers, ...) {
+    if (!extra_headers) {
+        extra_headers = "";
+    }
+    ctx->rdpos = ctx->wrpos = ctx->buf;
+    ctx->wrpos += snprintf(ctx->wrpos, ctx->buf + HTTPS_CLIENT_BUFSIZE - ctx->wrpos, "%s %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n", method, path, resource, server);
+    if (extra_headers) {
+        va_list ap;
+        va_start(ap, extra_headers);
+        ctx->wrpos += vsnprintf(ctx->wrpos, ctx->buf + HTTPS_CLIENT_BUFSIZE - ctx->wrpos, extra_headers, ap);
+        va_end(ap);
+    }
+    ctx->wrpos += snprintf(ctx->wrpos, ctx->buf + HTTPS_CLIENT_BUFSIZE - ctx->wrpos, "\r\n");
     ctx->content_length = 0;
     ctx->content_remaining = 0xffffffff; // no known read limit on header length
     //ESP_LOGD(TAG, "Request:\n%s", ctx->buf);
     return send_buf(ctx);
+}
 
+
+bool
+https_send_data(https_conn_context_t *ctx, const uint8_t *data, size_t datalen) {
+    while (datalen > 0) {
+        ssize_t res = mbedtls_ssl_write(&ctx->ssl, data, datalen);
+        if (res >= 0) {
+            data += res;
+            datalen -= res;
+        }
+        else if ((res != MBEDTLS_ERR_SSL_WANT_READ) && (res != MBEDTLS_ERR_SSL_WANT_WRITE)) {
+            ESP_LOGE(TAG, "mbedtls_ssl_write returned %d", res);
+            ctx->error = true;
+            return false;
+        }
+    }
+    return true;
 }
 
 
@@ -366,6 +395,56 @@ https_read_body_chunk(https_conn_context_t *ctx, unsigned char **data, size_t *d
     *data = ctx->wrpos;
     *datalen = res;
     ctx->content_remaining -= res;
+    return true;
+}
+
+
+bool
+https_split_url(char *url, char **server_name, char **server_port, char **path, char **resource) {
+    if (strncmp("https://", url, 8)) {
+        return false;
+    }
+
+    // separate server name(:port) and path
+    // NOTE: no new allocations, so only @url will have to be freed
+    char *first_slash = strchr(url + 8, '/');
+    if (first_slash) {
+        // need a zero between the name and the path, so overwrite "https://", it won't be needed anyway
+        size_t len = first_slash - (url + 8);
+        memcpy(url, url + 8, len);
+        url[len] = '\0';
+        *server_name = url;
+
+        // need a zero between the path and the filename as well, so move back the path too
+        char *last_slash = strrchr(first_slash, '/');
+        if (!last_slash[1]) {
+            // just a path, no filename: no need to move anything
+            *path = first_slash;
+            *resource = "";
+        }
+        else {
+            *path = url + len + 1;
+            len = last_slash - first_slash + 1;
+            memcpy(*path, first_slash, len);
+            (*path)[len] = '\0';
+            *resource = last_slash + 1;
+        }
+    }
+    else {
+        // no path: the part after "https://" is the server name
+        *server_name = url + 8;
+        *path = "/";
+        *resource = "";
+    }
+
+    // separate name and port
+    *server_port = strchr(*server_name, ':'); // FIXME: no support for "user:pwd@hostname:port"
+    if (*server_port) {
+        *((*server_port)++) = '\0';
+    }
+    else {
+        *server_port = "443";
+    }
     return true;
 }
 

@@ -1,3 +1,4 @@
+#include "ota.h"
 #include "main.h"
 #include "misc.h"
 #include "https_client.h"
@@ -25,7 +26,7 @@ static char *OTA_SERVER_NAME, *OTA_SERVER_PORT, *OTA_PATH, *OTA_DESCRIPTOR_FILEN
 //ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
 
 void
-check_ota(void * pvParameters __attribute__((unused))) {
+ota_check_task(void * pvParameters __attribute__((unused))) {
     time_t last_time, now;
     esp_err_t res;
 
@@ -69,51 +70,10 @@ check_ota(void * pvParameters __attribute__((unused))) {
         nvs_close(nvs);
     }
 
-    if (strncmp("https://", url, 8)) {
+    if (!https_split_url(url, &OTA_SERVER_NAME, &OTA_SERVER_PORT, &OTA_PATH, &OTA_DESCRIPTOR_FILENAME)) {
         ESP_LOGE(TAG, "Won't accept firmware from insecure source");
         printf("OTA security error\n");
         goto close_conn;
-    }
-
-    // separate server name(:port) and path
-    // NOTE: no new allocations, so only @url will have to be freed
-    char *first_slash = strchr(url + 8, '/');
-    if (first_slash) {
-        // need a zero between the name and the path, so overwrite "https://", it won't be needed anyway
-        size_t len = first_slash - (url + 8);
-        memcpy(url, url + 8, len);
-        url[len] = '\0';
-        OTA_SERVER_NAME = url;
-
-        // need a zero between the path and the filename as well, so move back the path too
-        char *last_slash = strrchr(first_slash, '/');
-        if (!last_slash[1]) {
-            // just a path, no filename: no need to move anything
-            OTA_PATH = first_slash;
-            OTA_DESCRIPTOR_FILENAME = "";
-        }
-        else {
-            OTA_PATH = url + len + 1;
-            len = last_slash - first_slash + 1;
-            memcpy(OTA_PATH, first_slash, len);
-            OTA_PATH[len] = '\0';
-            OTA_DESCRIPTOR_FILENAME = last_slash + 1;
-        }
-    }
-    else {
-        // no path: the part after "https://" is the server name
-        OTA_SERVER_NAME = url + 8;
-        OTA_PATH = "/";
-        OTA_DESCRIPTOR_FILENAME = "";
-    }
-
-    // separate name and port
-    OTA_SERVER_PORT = strchr(OTA_SERVER_NAME, ':'); // FIXME: no support for "user:pwd@hostname:port"
-    if (OTA_SERVER_PORT) {
-        *(OTA_SERVER_PORT++) = '\0';
-    }
-    else {
-        OTA_SERVER_PORT = "443";
     }
 
     ESP_LOGI(TAG, "Connecting to OTA server");
@@ -140,11 +100,11 @@ check_ota(void * pvParameters __attribute__((unused))) {
     ESP_LOGI(TAG, "Getting OTA descriptor");
 #ifdef MULTI_IMAGES
     snprintf(fw_name, sizeof(fw_name), OTA_DESCRIPTOR_FILENAME, update->subtype - ESP_PARTITION_SUBTYPE_APP_OTA_MIN);
-    if (!https_send_request(&ctx, "GET", OTA_SERVER_NAME, OTA_PATH, fw_name)) {
+    if (!https_send_request(&ctx, "GET", OTA_SERVER_NAME, OTA_PATH, fw_name, NULL)) {
         goto close_conn;
     }
 #else
-    if (!https_send_request(&ctx, "GET", OTA_SERVER_NAME, OTA_PATH, OTA_DESCRIPTOR_FILENAME)) {
+    if (!https_send_request(&ctx, "GET", OTA_SERVER_NAME, OTA_PATH, OTA_DESCRIPTOR_FILENAME, NULL)) {
         goto close_conn;
     }
 #endif // MULTI_IMAGES
@@ -186,7 +146,7 @@ check_ota(void * pvParameters __attribute__((unused))) {
         uint16_t sum1, sum2; // Fletcher16: don't want to deal with odd-bytes-long chunks
 
         ESP_LOGI(TAG, "Getting OTA binary '%s'", fw_name);
-        if (!https_send_request(&ctx, "GET", OTA_SERVER_NAME, OTA_PATH, fw_name)) {
+        if (!https_send_request(&ctx, "GET", OTA_SERVER_NAME, OTA_PATH, fw_name, NULL)) {
             goto close_conn;
         }
 
