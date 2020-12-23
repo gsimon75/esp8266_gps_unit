@@ -76,8 +76,9 @@ ota_check_task(void * pvParameters __attribute__((unused))) {
         goto close_conn;
     }
 
-    ESP_LOGI(TAG, "Connecting to OTA server");
-    task_info();
+    ESP_LOGI(TAG, "Connecting to OTA server, name='%s', port='%s', path='%s', descriptor='%s'",
+        OTA_SERVER_NAME, OTA_SERVER_PORT, OTA_PATH, OTA_DESCRIPTOR_FILENAME);
+
     if (!https_conn_init(&ctx, OTA_SERVER_NAME, OTA_SERVER_PORT)) {
         goto close_conn;
     }
@@ -247,7 +248,6 @@ ota_check_task(void * pvParameters __attribute__((unused))) {
 
 close_conn:
     ESP_LOGI(TAG, "OTA check done");
-    task_info();
 
     if (url) {
         free(url);

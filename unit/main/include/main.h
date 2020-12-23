@@ -12,9 +12,12 @@ extern EventGroupHandle_t main_event_group;
 #define OTA_CHECK_DONE_BIT  BIT1
 #define LREP_RUNNING_BIT    BIT2
 #define GOT_GPS_FIX_BIT     BIT3
+#define IDLE_TASK_ACTIVE    BIT4
 
 #define GPIO_BUTTON     0
 #define SSD1306_I2C I2C_NUM_0
+
+void wait_idle(void);
 
 #endif // MAIN_H
 // vim: set sw=4 ts=4 indk= et si:

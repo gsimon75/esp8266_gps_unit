@@ -285,8 +285,17 @@ screen_test(void) {
 static bool
 test_idle() {
     ++idle_counter;
+    xEventGroupSetBits(main_event_group, IDLE_TASK_ACTIVE);
     return true;
 }
+
+
+void
+wait_idle(void) {
+    xEventGroupClearBits(main_event_group, IDLE_TASK_ACTIVE);
+    xEventGroupWaitBits(main_event_group, IDLE_TASK_ACTIVE, false, true, portMAX_DELAY);
+}
+
 
 void
 app_main()
@@ -310,8 +319,6 @@ app_main()
         ESP_LOGI(TAG, "Cores: %d, Flash: %d MB", chip_info.cores, spi_flash_get_chip_size() / (1024 * 1024));
         printf("Cores:%d, Flash:%dMB\n", chip_info.cores, spi_flash_get_chip_size() >> 20);
     }
-
-    task_info();
 
     //Initialize NVS
     esp_err_t res = nvs_flash_init();
@@ -346,17 +353,18 @@ app_main()
     }
 
     button_init(); // for admin mode
-    task_info();
 
     if (wifi_init_sta()) {
         xEventGroupWaitBits(main_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
-        xTaskCreate(location_reporter_task, "lrep", 12 * 1024, NULL, 5, NULL);
+        wait_idle();
+
+        xTaskCreate(location_reporter_task, "lrep", 6 * 1024, NULL, 5, NULL);
         xEventGroupWaitBits(main_event_group, LREP_RUNNING_BIT, false, true, portMAX_DELAY);
+        wait_idle();
     }
 
     ESP_LOGI(TAG, "Up and running");
     printf("Ready\n");
-    task_info();
     gps_init();
     ESP_LOGI(TAG, "main done");
     task_info();
