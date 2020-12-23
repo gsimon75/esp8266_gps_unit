@@ -14,6 +14,7 @@ time_t timegm(struct tm *tim_p);
 void hexdump(const uint8_t *data, ssize_t len);
 void task_info(void);
 extern uint32_t idle_counter;
+extern const uint32_t source_date_epoch;
 
 #endif // MISC_H
 // vim: set sw=4 ts=4 indk= et si:

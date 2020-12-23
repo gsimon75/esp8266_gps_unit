@@ -179,7 +179,7 @@ https_conn_init(https_conn_context_t *ctx, const char *server_name, const char *
     res = mbedtls_ssl_get_verify_result(&ctx->ssl);
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    if (tv.tv_sec < SOURCE_DATE_EPOCH) {
+    if (tv.tv_sec < source_date_epoch) {
         // Until we get a GPS fix, we don't know the time, so we can't check cert expiry.
         // Either we reject all expired certs or we accept all of them.
         // For the sake of being able to do OTA without GPS, *HERE* we accept them,
@@ -247,7 +247,7 @@ https_send_request(https_conn_context_t *ctx, const char *method, const char *se
         extra_headers = "";
     }
     ctx->rdpos = ctx->wrpos = ctx->buf;
-    ctx->wrpos += snprintf(ctx->wrpos, ctx->buf + HTTPS_CLIENT_BUFSIZE - ctx->wrpos, "%s %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/" STR(SOURCE_DATE_EPOCH) " esp8266\r\n", method, path, resource, server);
+    ctx->wrpos += snprintf(ctx->wrpos, ctx->buf + HTTPS_CLIENT_BUFSIZE - ctx->wrpos, "%s %s%s HTTP/1.1\r\nHost: %s\r\nUser-Agent: esp-idf/%u esp8266\r\n", method, path, resource, server, source_date_epoch);
     if (extra_headers) {
         va_list ap;
         va_start(ap, extra_headers);

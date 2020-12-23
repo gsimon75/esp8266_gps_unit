@@ -138,12 +138,12 @@ ota_check_task(void * pvParameters __attribute__((unused))) {
     }
     ESP_LOGI(TAG, "OTA descriptor end");
 
-    if (fw_mtime <= SOURCE_DATE_EPOCH) {
+    if (fw_mtime <= source_date_epoch) {
         ESP_LOGI(TAG, "Current firmware is up-to-date");
         printf("Firmware up-to-date\n");
     }
     else if (fw_name[0]) { // get the firmware binary
-        ESP_LOGI(TAG, "Current firmware: %u, available: %lu", SOURCE_DATE_EPOCH, fw_mtime);
+        ESP_LOGI(TAG, "Current firmware: %u, available: %lu", source_date_epoch, fw_mtime);
         uint16_t sum1, sum2; // Fletcher16: don't want to deal with odd-bytes-long chunks
 
         ESP_LOGI(TAG, "Getting OTA binary '%s'", fw_name);
