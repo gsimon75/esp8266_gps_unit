@@ -85,6 +85,28 @@ hexdump(const uint8_t *data, ssize_t len) {
     }
 }
 
+size_t
+heap_available(void) {
+    void * p[128];
+    size_t result = 0;
+
+    int pidx = 0;
+    for (size_t len = 0x100000; len; len >>= 1) {
+        while (pidx < 128) {
+            p[pidx] = malloc(len);
+            if (!p[pidx]) {
+                break;
+            }
+            ++pidx;
+            result += len;
+        }
+    }
+    for (int i = 0; i < pidx; ++i) {
+        free(p[i]);
+    }
+    return result;
+}
+
 void
 task_info(void) {
     UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
@@ -98,6 +120,7 @@ task_info(void) {
 
     ESP_LOGD(TAG, "Tasks:\n%s", buf);
     free(buf);
+    ESP_LOGD(TAG, "Heap free: %u", heap_available());
 
     /*struct mallinfo mi = mallinfo();
     ESP_LOGD(TAG, "mem heap=%u, hwm=%u, alloc=%u, free=%u", mi.arena, mi.usmblks, mi.uordblks, mi.fordblks);*/

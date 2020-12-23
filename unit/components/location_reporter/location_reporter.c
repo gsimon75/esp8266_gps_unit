@@ -70,25 +70,42 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
     }
 
     bool connected = false;
-    const char *unit_name = "test-0";
+    char unit_name[32];
 
     xEventGroupSetBits(main_event_group, LREP_RUNNING_BIT);
 
-    ESP_LOGI(TAG, "Connecting to LRep server");
+    ESP_LOGI(TAG, "Connecting to LRep server, name='%s', port='%s', path='%s', endpoint='%s'",
+        DATA_SERVER_NAME, DATA_SERVER_PORT, DATA_PATH, DATA_ENDPOINT);
+
     if (https_conn_init(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT)) {
         connected = true;
-        ESP_LOGD(TAG, "Dumping subject DN");
+    }
+    {
+        // try to find the CN (oid=2.5.4.3, [ 0x55, 0x04, 0x03 ]) from the subject DN
         mbedtls_x509_name *nn = &ctx.client_cert.subject;
+        unit_name[0] = '\0';
         while (nn) {
-            ESP_LOGD(TAG, "oid: tag=0x%x, len=%d", nn->oid.tag, nn->oid.len);
-            hexdump(nn->oid.p, nn->oid.len);
-            ESP_LOGD(TAG, "val: tag=0x%x, len=%d", nn->val.tag, nn->val.len);
-            hexdump(nn->val.p, nn->val.len);
+            /*
+            ESP_LOGD(TAG, "oid: tag=0x%x, len=%d", nn->oid.tag, nn->oid.len); hexdump(nn->oid.p, nn->oid.len);
+            ESP_LOGD(TAG, "val: tag=0x%x, len=%d", nn->val.tag, nn->val.len); hexdump(nn->val.p, nn->val.len);
             ESP_LOGD(TAG, "next_merged=%d", nn->next_merged);
+            */
+            if ((nn->oid.len == 3) && (nn->oid.p[0] == 0x55) && (nn->oid.p[1] == 0x04) && (nn->oid.p[2] == 0x03)) {
+                size_t len = nn->val.len;
+                if (len >= sizeof(unit_name)) {
+                    ESP_LOGE(TAG, "Unit CN too long: %d", len);
+                }
+                memcpy(unit_name, nn->val.p, len);
+                unit_name[len] = '\0';
+                break;
+            }
             nn = nn->next;
         }
-        ESP_LOGD(TAG, "Dumped subject DN");
+        if (!unit_name[0]) {
+            strncpy(unit_name, "<unknown>", sizeof(unit_name));
+        }
     }
+    ESP_LOGI(TAG, "Unit CN: %s", unit_name);
 
     while (true) {
         xEventGroupWaitBits(main_event_group, GOT_GPS_FIX_BIT, false, true, portMAX_DELAY);
@@ -140,7 +157,6 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
 
 error:
     ESP_LOGI(TAG, "Location reporting stopped");
-    task_info();
 
     if (body) {
         free(body);
