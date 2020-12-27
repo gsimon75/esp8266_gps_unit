@@ -361,8 +361,12 @@ https_read_header(https_conn_context_t *ctx, unsigned char **name, unsigned char
     }
     for (*(sep++) = '\0'; *sep && ((*sep == ' ') || (*sep == '\t')); ++sep) {
     }
-    *name = line;
-    *value = sep;
+    if (name) {
+        *name = line;
+    }
+    if (value) {
+        *value = sep;
+    }
     if (!strcasecmp("Content-Length", line)) {
         ctx->content_length = atoi((char*)sep);
     }
@@ -376,12 +380,17 @@ https_read_body_chunk(https_conn_context_t *ctx, unsigned char **data, size_t *d
         return false;
     }
     if (ctx->rdpos < ctx->wrpos) {
-        *data = ctx->rdpos;
-        *datalen = ctx->wrpos - ctx->rdpos;
-        if (*datalen > ctx->content_remaining) {
-            *datalen = ctx->content_remaining;
+        if (data) {
+            *data = ctx->rdpos;
         }
-        ctx->content_remaining -= *datalen;
+        size_t len = ctx->wrpos - ctx->rdpos;
+        if (len > ctx->content_remaining) {
+            len = ctx->content_remaining;
+        }
+        if (datalen) {
+            *datalen = len;
+        }
+        ctx->content_remaining -= len;
         ctx->rdpos = ctx->wrpos = ctx->buf;
         return true;
     }
@@ -392,8 +401,12 @@ https_read_body_chunk(https_conn_context_t *ctx, unsigned char **data, size_t *d
         return false;
     }
  
-    *data = ctx->wrpos;
-    *datalen = res;
+    if (data) {
+        *data = ctx->wrpos;
+    }
+    if (datalen) {
+        *datalen = res;
+    }
     ctx->content_remaining -= res;
     return true;
 }
