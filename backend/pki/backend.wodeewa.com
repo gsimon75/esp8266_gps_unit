@@ -25,7 +25,7 @@ server {
 		if ($ssl_client_verify != SUCCESS) {
 			return 403;
 		}
-		proxy_pass                            http://127.0.0.1:8080/backend/;
+		proxy_pass                            http://127.0.0.1:8080/backend/v0;
 		proxy_set_header Host                 $host;
 		proxy_set_header X-Real-IP            $remote_addr;
 		proxy_set_header X-Forwarded-For      $proxy_add_x_forwarded_for;
