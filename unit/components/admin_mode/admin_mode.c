@@ -455,18 +455,18 @@ http_post_wifi_ssid(httpd_req_t *req) {
         return httpd_resp_empty(req, HTTPD_400);
     }
 
-    nvs_handle nvs_wifi;
-    esp_err_t res = nvs_open("wifi", NVS_READWRITE, &nvs_wifi);
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("wifi", NVS_READWRITE, &nvs);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot find persistent WiFi config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    res = nvs_set_str(nvs_wifi, "ssid", value);
+    res = nvs_set_str(nvs, "ssid", value);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot write WiFi SSID to persistent config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    nvs_close(nvs_wifi);
+    nvs_close(nvs);
     ESP_LOGI(TAG, "New WiFi SSID '%s'", value);
 
     return httpd_resp_empty(req, HTTPD_204);
@@ -496,18 +496,18 @@ http_post_wifi_password(httpd_req_t *req) {
         return httpd_resp_empty(req, HTTPD_400);
     }
 
-    nvs_handle nvs_wifi;
-    esp_err_t res = nvs_open("wifi", NVS_READWRITE, &nvs_wifi);
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("wifi", NVS_READWRITE, &nvs);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot find persistent WiFi config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    res = nvs_set_str(nvs_wifi, "password", value);
+    res = nvs_set_str(nvs, "password", value);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot write WiFi password to persistent config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    nvs_close(nvs_wifi);
+    nvs_close(nvs);
     ESP_LOGI(TAG, "New WiFi password (len=%d)", strlen(value));
 
     return httpd_resp_empty(req, HTTPD_204);
@@ -534,18 +534,18 @@ http_post_ssl_pkey(httpd_req_t *req) {
         return httpd_resp_empty(req, HTTPD_415);
     }
 
-    nvs_handle nvs_ssl;
-    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs_ssl);
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    res = nvs_set_blob(nvs_ssl, "pkey", body, req->content_len);
+    res = nvs_set_blob(nvs, "pkey", body, req->content_len);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot write SSL pkey to persistent config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    nvs_close(nvs_ssl);
+    nvs_close(nvs);
     ESP_LOGI(TAG, "New SSL pkey (len=%d)", req->content_len);
     //hexdump(body, req->content_len);
     free(body);
@@ -573,18 +573,18 @@ http_post_ssl_cert(httpd_req_t *req) {
         return httpd_resp_empty(req, HTTPD_415);
     }
 
-    nvs_handle nvs_ssl;
-    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs_ssl);
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    res = nvs_set_blob(nvs_ssl, "cert", body, req->content_len);
+    res = nvs_set_blob(nvs, "cert", body, req->content_len);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot write SSL cert to persistent config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    nvs_close(nvs_ssl);
+    nvs_close(nvs);
     ESP_LOGI(TAG, "New SSL cert (len=%d)", req->content_len);
     //hexdump(body, req->content_len);
     free(body);
@@ -612,18 +612,18 @@ http_post_ssl_cacert(httpd_req_t *req) {
         return httpd_resp_empty(req, HTTPD_415);
     }
 
-    nvs_handle nvs_ssl;
-    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs_ssl);
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    res = nvs_set_blob(nvs_ssl, "cacert", body, req->content_len);
+    res = nvs_set_blob(nvs, "cacert", body, req->content_len);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot write SSL cacert to persistent config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    nvs_close(nvs_ssl);
+    nvs_close(nvs);
     ESP_LOGI(TAG, "New SSL cacert (len=%d)", req->content_len);
     //hexdump(body, req->content_len);
     free(body);
@@ -654,18 +654,18 @@ http_post_ota_url(httpd_req_t *req) {
         return httpd_resp_empty(req, HTTPD_400);
     }
 
-    nvs_handle nvs_ota;
-    esp_err_t res = nvs_open("ota", NVS_READWRITE, &nvs_ota);
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("ota", NVS_READWRITE, &nvs);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot find persistent OTA config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    res = nvs_set_str(nvs_ota, "url", value);
+    res = nvs_set_str(nvs, "url", value);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Cannot write OTA URL to persistent config: %d", res);
         return httpd_resp_empty(req, HTTPD_500);
     }
-    nvs_close(nvs_ota);
+    nvs_close(nvs);
     ESP_LOGI(TAG, "New OTA URL '%s'", value);
 
     return httpd_resp_empty(req, HTTPD_204);
@@ -692,7 +692,21 @@ http_post_server_url(httpd_req_t *req) {
     if (!get_body_field(body, "data_url", value, sizeof(value))) {
         return httpd_resp_empty(req, HTTPD_400);
     }
-    ESP_LOGD(TAG, "Received value '%s'", value);
+
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("server", NVS_READWRITE, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent server config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_str(nvs, "url", value);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write server URL to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs);
+    ESP_LOGI(TAG, "New server URL '%s'", value);
+
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -713,11 +727,32 @@ http_post_server_time_threshold(httpd_req_t *req) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
-    // D (318487) admin: Request body '{"data_time_threshold":30}'
-    if (!get_body_field(body, "data_time_threshold", value, sizeof(value))) {
+    // D (318487) admin: Request body '{"time_threshold":30}'
+    if (!get_body_field(body, "time_threshold", value, sizeof(value))) {
         return httpd_resp_empty(req, HTTPD_400);
     }
-    ESP_LOGD(TAG, "Received value '%s'", value);
+
+    char *end = value;
+    long x = strtol(value, &end, 0);
+    if (*end || (x < 0) || (65535 < x)) {
+        ESP_LOGE(TAG, "Invalid server time threshold '%s'", value);
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("server", NVS_READWRITE, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent server config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_u16(nvs, "time_trshld", x);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write server time threshold to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs);
+    ESP_LOGI(TAG, "New server time threshold %ld", x);
+
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -738,11 +773,32 @@ http_post_server_distance_threshold(httpd_req_t *req) {
         return ESP_OK;
     }
     ESP_LOGD(TAG, "Request body '%s'", body);
-    // D (345347) admin: Request body '{"data_distance_threshold":100}'
-    if (!get_body_field(body, "data_distance_threshold", value, sizeof(value))) {
+    // D (345347) admin: Request body '{"distance_threshold":100}'
+    if (!get_body_field(body, "distance_threshold", value, sizeof(value))) {
         return httpd_resp_empty(req, HTTPD_400);
     }
-    ESP_LOGD(TAG, "Received value '%s'", value);
+
+    char *end = value;
+    long x = strtol(value, &end, 0);
+    if (*end || (x < 0) || (65535 < x)) {
+        ESP_LOGE(TAG, "Invalid server dist threshold '%s'", value);
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+
+    nvs_handle nvs;
+    esp_err_t res = nvs_open("server", NVS_READWRITE, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent server config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_u16(nvs, "dist_trshld", x);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write server distance threshold to persistent config: %d", res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    nvs_close(nvs);
+    ESP_LOGI(TAG, "New server distance threshold %ld", x);
+
     return httpd_resp_empty(req, HTTPD_204);
 }
 

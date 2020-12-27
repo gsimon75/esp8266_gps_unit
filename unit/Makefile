@@ -13,6 +13,9 @@ ARFLAGS += D
 CFLAGS += -DSOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
 MAKEFLAGS += -j1
 .NOTPARALLEL:
+.PHONY:		remove_epoch_obj
+remove_epoch_obj:
+			rm build/misc/epoch.o
 #
 ##############################################################################
 
@@ -43,8 +46,8 @@ build/$(PROJECT_NAME).desc:		build/$(PROJECT_NAME).bin
 upload_binaries:	build/$(PROJECT_NAME).desc build/$(PROJECT_NAME).bin
 	scp -C $^ wodeewa.com:src/esp8266_gps_unit/backend/ota/
 
-app:		upload_binaries
-app-flash:	upload_binaries
+app:		remove_epoch_obj upload_binaries
+app-flash:	remove_epoch_obj upload_binaries
 #
 ##############################################################################
 
