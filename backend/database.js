@@ -21,7 +21,6 @@ async function open() {
         await client.connect();
         db = client.db("gps_tracker");
         traces = db.collection("traces");
-        logger.debug("traces=" + traces);
     }
     catch (err) {
         logger.error(err.stack);
