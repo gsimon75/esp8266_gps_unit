@@ -8,14 +8,14 @@ const utils = require("../utils");
 function op_healthz(req) {
     logger.debug("GET healthz");
     //utils.dump_request(req);
-    return Promise.resolve(utils.result(200, "ok"));
+    return "ok";
 }
 
 
 function op_logout(req) {
     logger.debug("GET logout");
     req.session.uid = req.session.euid = -1;
-    return Promise.resolve(utils.result(204));
+    return null;
 }
 
 

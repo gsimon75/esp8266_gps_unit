@@ -41,11 +41,14 @@ get_blob(nvs_handle h, const char *name, uint8_t **buf, size_t *buflen) {
 void
 https_conn_destroy(https_conn_context_t *ctx) {
     mbedtls_ssl_close_notify(&ctx->ssl);
+    mbedtls_ssl_free(&ctx->ssl);
     mbedtls_net_free(&ctx->ssl_ctx);
+
+    mbedtls_ssl_config_free(&ctx->conf);
+    mbedtls_pk_free(&ctx->client_pkey);
     mbedtls_x509_crt_free(&ctx->client_cert);
     mbedtls_x509_crt_free(&ctx->cacert);
-    mbedtls_ssl_free(&ctx->ssl);
-    mbedtls_ssl_config_free(&ctx->conf);
+
     mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
     mbedtls_entropy_free(&ctx->entropy);
 }
@@ -312,6 +315,7 @@ http_readline(https_conn_context_t *ctx) {
     while (ctx->wrpos < (ctx->buf + HTTPS_CLIENT_BUFSIZE)) {
         ssize_t res = read_some(ctx);
         if (res <= 0) { // either error or eof before eol
+            ESP_LOGE(TAG, "Read error before EOL: %d", res);
             ctx->error = true;
             return NULL;
         }
@@ -322,6 +326,8 @@ http_readline(https_conn_context_t *ctx) {
         }
     }
     ctx->error = true;
+    ESP_LOGE(TAG, "Line too long, rdpos=0x%x, wrpos=0x%x", ctx->rdpos - ctx->buf, ctx->wrpos - ctx->buf);
+    hexdump(ctx->buf, HTTPS_CLIENT_BUFSIZE);
     return NULL; // haven't returned yet -> buffer was too short for a line
 }
 
@@ -334,6 +340,7 @@ https_read_statusline(https_conn_context_t *ctx) {
     }
     unsigned char *sep = ustrchr(line, ' ');
     if (!sep) { // invalid response status line
+        ESP_LOGE(TAG, "Malformed status line '%s'", line);
         ctx->error = true;
         return -1;
     }

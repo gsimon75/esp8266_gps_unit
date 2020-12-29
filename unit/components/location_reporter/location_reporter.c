@@ -2,6 +2,7 @@
 #include "gps.h"
 #include "misc.h"
 #include "https_client.h"
+#include "oled_stdout.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
@@ -18,7 +19,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#define BODY_MAX 256
+#define BODY_MAX 128
 
 static const char *TAG = "lrep";
 
@@ -144,34 +145,55 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
 
         int bodylen = 0;
 
-        uint16_t adc_value;
-        res = adc_read(&adc_value);
-        if (res != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to read ADC: %d", res);
-            adc_value = 0;
-        }
-        else {
-            ESP_LOGE(TAG, "Raw ADC value: %d", adc_value);
-            adc_value = (((unsigned int)adc_value) * 1000) >> 10;
+        uint16_t adc_mV;
+        {
+            uint16_t raw_adc;
+            res = adc_read(&raw_adc);
+            if (res != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to read ADC: %d", res);
+                adc_mV = 0;
+            }
+            else {
+                adc_mV = (((unsigned int)raw_adc) * 3116) >> 10; // NOTE: it should be 3300 mV, but it isn't, and CONFIG_ESP_PHY_INIT_DATA_VDD33_CONST doesn't change anything
+                ESP_LOGE(TAG, "ADC raw=%u, U=%u mV", raw_adc, adc_mV);
+            }
         }
 
         if ((uxBits & GOT_GPS_FIX_BIT) && gps_fix.is_valid) {
+            // 012345678901234567890
+            // -12.3456, -123.4567 
+            // 20201229 123456 3129
+            struct tm t;
+            time_t tt = gps_fix.time_usec / 1e6;
+            gmtime_r(&tt, &t);
+            lcd_gotoxy(0, 6);
+            printf("\r%8.4f, %9.4f", gps_fix.latitude, gps_fix.longitude);
+            lcd_gotoxy(0, 7);
+            printf("\r%04u%02u%02u %02u%02u%02u %4u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec, adc_mV);
             // Coordinate precision: https://xkcd.com/2170/
             // { unit: \"test-1\", time: 1608739445000, lat: 25.04, lon: 55.25, alt: 30.11, battery: 3278.123 }
-            bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"time\":%llu,\"lat\":%.4f,\"lon\":%.4f,\"azi\":%.0f,\"spd\":%.0f,\"bat\":%d}",
-                unit_name, gps_fix.time_usec / 1000, gps_fix.latitude, gps_fix.longitude, gps_fix.azimuth, gps_fix.speed_kph, adc_value);
+            bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"time\":%lu,\"lat\":%.4f,\"lon\":%.4f,\"azi\":%.0f,\"spd\":%.0f,\"bat\":%u}",
+                unit_name, (unsigned long)(gps_fix.time_usec / 1e6), gps_fix.latitude, gps_fix.longitude, gps_fix.azimuth, gps_fix.speed_kph, adc_mV);
         }
         else {
             time_t now;
             time(&now);
+            lcd_gotoxy(0, 6);
+            printf("\r<no gps signal yet>");
+            lcd_gotoxy(0, 7);
             if (source_date_epoch < now) {
-                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"time\":%lu,\"bat\":%d}", unit_name, now, adc_value);
+                struct tm t;
+                gmtime_r(&now, &t);
+                printf("\r%04u%02u%02u %02u%02u%02u %4u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec, adc_mV);
+                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"time\":%lu,\"bat\":%u}", unit_name, now, adc_mV);
             }
             else {
-                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"bat\":%d}", unit_name, adc_value);
+                printf("\r<no valid time> %4u", adc_mV);
+                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"bat\":%u}", unit_name, adc_mV);
             }
         }
-        ESP_LOGD(TAG, "Body (len=%d):\n%s", bodylen, body);
+        //ESP_LOGD(TAG, "Body (len=%d):\n%s", bodylen, body);
+        //task_info();
 
         int status = 0;
         do {
@@ -187,6 +209,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 || !https_send_data(&ctx, body, bodylen)
                 ) {
                 // couldn't send: conn closed?, reconnect, retry
+                ESP_LOGW(TAG, "Send failed, reconnect");
                 https_conn_destroy(&ctx);
                 connected = false;
             }
@@ -198,7 +221,14 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 }
                 while (https_read_body_chunk(&ctx, NULL, NULL)) {
                 }
-                if ((200 <= status) && (status < 300)) {
+
+                if (status < 100) {
+                    // couldn't receive: conn closed?, reconnect, retry
+                    ESP_LOGW(TAG, "Recv failed, reconnect");
+                    https_conn_destroy(&ctx);
+                    connected = false;
+                }
+                else if ((200 <= status) && (status < 300)) {
                     // success, done
                 }
                 else if ((400 <= status) && (status < 500)) {

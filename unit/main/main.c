@@ -21,6 +21,8 @@
 #include <esp_tls.h>
 #include <nvs_flash.h>
 
+#include <driver/adc.h>
+
 #undef LOG_LOCAL_LEVEL
 #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 #include <esp_log.h>
@@ -296,6 +298,19 @@ wait_idle(void) {
     xEventGroupWaitBits(main_event_group, IDLE_TASK_ACTIVE, false, true, portMAX_DELAY);
 }
 
+/*
+extern uint16_t test_tout();
+static void
+dump_adc(TimerHandle_t xTimer) {
+    uint16_t adc_value;
+    esp_err_t res = adc_read(&adc_value);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read ADC: %d", res);
+        adc_value = 0;
+    }
+    uint16_t x = test_tout(0);
+    ESP_LOGD(TAG, "adc=%u tout=%u", adc_value, x);
+} */
 
 void
 app_main()
@@ -333,14 +348,13 @@ app_main()
     }
 
     main_event_group = xEventGroupCreate();
-
-    tcpip_adapter_init();
     res = esp_event_loop_init(NULL, NULL);
     if (res != ESP_OK) {
         printf("EventLoop error %d\n", res);
         ESP_LOGE(TAG, "Event loop failed: %d", res);
     }
 
+    tcpip_adapter_init();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     res = esp_wifi_init(&cfg);
     if (res != ESP_OK) {
@@ -366,6 +380,22 @@ app_main()
     ESP_LOGI(TAG, "Up and running");
     printf("Ready\n");
     gps_init();
+
+    /*{
+        adc_config_t cfg = {
+            .mode = ADC_READ_TOUT_MODE,
+            .clk_div = 32,
+        };
+
+        res = adc_init(&cfg);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to open ADC: %d", res);
+        }
+        TimerHandle_t adc_dump_timer;
+        adc_dump_timer = xTimerCreate("boo", pdMS_TO_TICKS(500), pdTRUE, NULL, dump_adc);
+        xTimerStart(adc_dump_timer, 0);
+    }*/
+
     ESP_LOGI(TAG, "main done");
     task_info();
 }

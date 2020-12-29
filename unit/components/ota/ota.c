@@ -31,7 +31,7 @@ ota_check_task(void * pvParameters __attribute__((unused))) {
     esp_err_t res;
 
     ESP_LOGI(TAG, "Checking OTA");
-    printf("Checking OTA...\n");
+    printf("Checking OTA...\r");
 
     const esp_partition_t *update = esp_ota_get_next_update_partition(NULL);
     //LOG_PARTITION("Update", update);
@@ -175,7 +175,7 @@ ota_check_task(void * pvParameters __attribute__((unused))) {
 
         sum1 = sum2 = 0;
         time(&last_time);
-        printf("Downloading firmware\n");
+        printf("Downloading firmware\r");
         while (https_read_body_chunk(&ctx, &data, &datalen)) {
             time(&now);
             if ((now - last_time) > 1) {
