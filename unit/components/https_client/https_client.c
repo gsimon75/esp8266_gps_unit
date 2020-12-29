@@ -39,11 +39,7 @@ get_blob(nvs_handle h, const char *name, uint8_t **buf, size_t *buflen) {
 
 
 void
-https_conn_destroy(https_conn_context_t *ctx) {
-    mbedtls_ssl_close_notify(&ctx->ssl);
-    mbedtls_ssl_free(&ctx->ssl);
-    mbedtls_net_free(&ctx->ssl_ctx);
-
+https_destroy(https_conn_context_t *ctx) {
     mbedtls_ssl_config_free(&ctx->conf);
     mbedtls_pk_free(&ctx->client_pkey);
     mbedtls_x509_crt_free(&ctx->client_cert);
@@ -55,13 +51,14 @@ https_conn_destroy(https_conn_context_t *ctx) {
 
 
 bool
-https_conn_init(https_conn_context_t *ctx, const char *server_name, const char *server_port) {
+https_init(https_conn_context_t *ctx) {
     ctx->rdpos = ctx->wrpos = ctx->buf;
     ctx->content_length = 0;
     ctx->content_remaining = 0;
 
-    mbedtls_net_init(&ctx->ssl_ctx);
     mbedtls_ssl_init(&ctx->ssl);
+    mbedtls_net_init(&ctx->ssl_ctx);
+
     mbedtls_ssl_config_init(&ctx->conf);
 #ifdef CONFIG_MBEDTLS_DEBUG
     mbedtls_esp_enable_debug_log(&ctx->conf, 4);
@@ -72,8 +69,6 @@ https_conn_init(https_conn_context_t *ctx, const char *server_name, const char *
     mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
     mbedtls_entropy_init(&ctx->entropy);
 
-    time_t last_time, now;
-    
     esp_err_t res = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func, &ctx->entropy, NULL, 0);
     if (res != 0) {
         ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned %d", res);
@@ -123,12 +118,6 @@ https_conn_init(https_conn_context_t *ctx, const char *server_name, const char *
         nvs_close(nvs);
     }
 
-    res = mbedtls_net_connect(&ctx->ssl_ctx, server_name, server_port, MBEDTLS_NET_PROTO_TCP);
-    if (res != 0) {
-        ESP_LOGE(TAG, "mbedtls_net_connect returned %d", res);
-        goto close_conn;
-    }
-
     res = mbedtls_ssl_config_defaults(&ctx->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     if (res != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_config_defaults returned %d", res);
@@ -147,6 +136,34 @@ https_conn_init(https_conn_context_t *ctx, const char *server_name, const char *
     mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
     mbedtls_ssl_conf_cert_profile(&ctx->conf, &mbedtls_x509_crt_profile_next);
     mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->client_cert, &ctx->client_pkey); // FIXME: if present
+    return true;
+
+close_conn:
+    ctx->error = true;
+    return false;
+}
+
+
+void
+https_disconnect(https_conn_context_t *ctx) {
+    mbedtls_ssl_close_notify(&ctx->ssl);
+    mbedtls_ssl_free(&ctx->ssl);
+    mbedtls_ssl_init(&ctx->ssl);
+    mbedtls_net_free(&ctx->ssl_ctx);
+    mbedtls_net_init(&ctx->ssl_ctx);
+}
+
+
+bool
+https_connect(https_conn_context_t *ctx, const char *server_name, const char *server_port) {
+    mbedtls_net_init(&ctx->ssl_ctx);
+    mbedtls_ssl_init(&ctx->ssl);
+
+    esp_err_t res = mbedtls_net_connect(&ctx->ssl_ctx, server_name, server_port, MBEDTLS_NET_PROTO_TCP);
+    if (res != 0) {
+        ESP_LOGE(TAG, "mbedtls_net_connect returned %d", res);
+        goto close_conn;
+    }
 
     res = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf);
     if (res != 0) {
@@ -162,13 +179,7 @@ https_conn_init(https_conn_context_t *ctx, const char *server_name, const char *
 
     mbedtls_ssl_set_bio(&ctx->ssl, &ctx->ssl_ctx, mbedtls_net_send, mbedtls_net_recv, NULL);
 
-    time(&last_time);
     while (1) {
-        time(&now);
-        if ((now - last_time) > 1) {
-            ESP_LOGD(TAG, "Handshake in progress");
-            last_time = now;
-        }
         res = mbedtls_ssl_handshake(&ctx->ssl);
         if (res == 0) {
             break;

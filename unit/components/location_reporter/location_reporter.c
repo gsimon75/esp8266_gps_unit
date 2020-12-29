@@ -102,7 +102,6 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         }
     }
 
-    bool connected = false;
     char unit_name[32];
 
     xEventGroupSetBits(main_event_group, LREP_RUNNING_BIT);
@@ -110,9 +109,12 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
     ESP_LOGI(TAG, "Connecting to LRep server, name='%s', port='%s', path='%s', endpoint='%s'",
         DATA_SERVER_NAME, DATA_SERVER_PORT, DATA_PATH, DATA_ENDPOINT);
 
-    if (https_conn_init(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT)) {
-        connected = true;
+    if (!https_init(&ctx)) {
+        ESP_LOGE(TAG, "Cannot set up SSL");
+        goto error;
     }
+
+    bool connected = https_connect(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT);
     {
         // try to find the CN (oid=2.5.4.3, [ 0x55, 0x04, 0x03 ]) from the subject DN
         mbedtls_x509_name *nn = &ctx.client_cert.subject;
@@ -199,7 +201,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         do {
             if (!connected) {
                 ESP_LOGI(TAG, "Reconnecting to LRep server");
-                if (!https_conn_init(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT)) {
+                if (!https_connect(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT)) {
                     // couldn't connect: drop this report, try again with the next one
                     break;
                 }
@@ -210,7 +212,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 ) {
                 // couldn't send: conn closed?, reconnect, retry
                 ESP_LOGW(TAG, "Send failed, reconnect");
-                https_conn_destroy(&ctx);
+                https_disconnect(&ctx);
                 connected = false;
             }
             else {
@@ -225,7 +227,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 if (status < 100) {
                     // couldn't receive: conn closed?, reconnect, retry
                     ESP_LOGW(TAG, "Recv failed, reconnect");
-                    https_conn_destroy(&ctx);
+                    https_disconnect(&ctx);
                     connected = false;
                 }
                 else if ((200 <= status) && (status < 300)) {
@@ -243,7 +245,8 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
             }
         } while (!connected);
     }
-    //https_conn_destroy(&ctx);
+    //https_disconnect(&ctx);
+    //https_destroy(&ctx);
 
 error:
     ESP_LOGI(TAG, "Location reporting stopped");
