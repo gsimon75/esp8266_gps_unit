@@ -22,7 +22,7 @@ db.createCollection("sessions")
 ## Commands
 
 Insert data:
-`db.traces.insert( { unit: "test-1", time: ISODate("2020-12-20T15:29:52.904Z"), lat: 25.04, lon: 55.25, alt: 30.11, battery: 100.0 })`
+`db.traces.insert( { unit: "test-1", time: 0|(ISODate("2020-12-20T15:29:52.904Z") / 1000), lat: 25.04, lon: 55.25, alt: 30.11, battery: 100.0 })`
 
 Where is the unit "test-1":
 `db.traces.aggregate([{$match: {unit: "test-1"}}, {$sort: {time: -1}}, {$limit: 1}])`
