@@ -91,13 +91,8 @@ send_ubx(const uint8_t *msg) {
 static void
 process_new_fix(void) {
     ESP_LOGD(TAG, "New fix; v=%d, t=%lu, lat=%f, lng=%f, spd=%f, azm=%f", gps_fix.is_valid, (unsigned long)(gps_fix.time_usec / 1e6), gps_fix.latitude, gps_fix.longitude, gps_fix.speed_kph, gps_fix.azimuth);
-    // FIXME: fire an event
-    // FIXME: tune the clock
-
     xEventGroupSetBits(main_event_group, GOT_GPS_FIX_BIT);
     xEventGroupClearBits(main_event_group, GOT_GPS_FIX_BIT);
-
-    printf("\r%d, %5.3f, %5.3f, %lu", gps_fix.is_valid, gps_fix.latitude, gps_fix.longitude, (unsigned long)(gps_fix.time_usec / 1e6));
 }
 
 
@@ -648,7 +643,7 @@ gps_init(void) {
     uart_driver_install(UART_NUM_0, UART_FIFO_LEN + 1, 0, 100, &uart0_queue, 0);
 
     baud_rate_watchdog_timer = xTimerCreate("gps", pdMS_TO_TICKS(3000), pdTRUE, NULL, try_next_baud_rate);
-    xTaskCreate(uart_event_task, "gps", 1536, NULL, 12, NULL);
+    xTaskCreate(uart_event_task, "gps", 2048, NULL, 12, NULL);
     xTimerStart(baud_rate_watchdog_timer, 0);
 
     return ESP_OK;
