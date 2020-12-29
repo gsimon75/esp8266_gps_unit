@@ -1,5 +1,5 @@
 # Machine-generated file - use setup menu in minicom to change parameters.
-pu port             /dev/ttyUSB1
+pu port             /dev/ttyFT232
 pu baudrate         230400
 pu bits             8
 pu parity           N

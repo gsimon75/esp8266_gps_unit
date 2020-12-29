@@ -79,7 +79,7 @@ ota_check_task(void * pvParameters __attribute__((unused))) {
     ESP_LOGI(TAG, "Connecting to OTA server, name='%s', port='%s', path='%s', descriptor='%s'",
         OTA_SERVER_NAME, OTA_SERVER_PORT, OTA_PATH, OTA_DESCRIPTOR_FILENAME);
 
-    if (!https_conn_init(&ctx, OTA_SERVER_NAME, OTA_SERVER_PORT)) {
+    if (!https_init(&ctx) || !https_connect(&ctx, OTA_SERVER_NAME, OTA_SERVER_PORT)) {
         goto close_conn;
     }
 
@@ -253,7 +253,8 @@ close_conn:
         free(url);
         url = NULL;
     }
-    https_conn_destroy(&ctx);
+    https_disconnect(&ctx);
+    https_destroy(&ctx);
 
     xEventGroupSetBits(main_event_group, OTA_CHECK_DONE_BIT);
     vTaskDelete(NULL);
