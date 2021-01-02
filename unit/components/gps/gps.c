@@ -24,8 +24,8 @@ static const char *TAG = "gps";
 void ets_update_cpu_frequency(uint32_t ticks_per_us);
 extern uint64_t g_esp_os_us;
 
-#define USE_NMEA
-//#define USE_UBX
+//#define USE_NMEA
+#define USE_UBX
 
 gps_fix_t gps_fix;
 
@@ -33,7 +33,7 @@ gps_fix_t gps_fix;
 static QueueHandle_t uart0_queue;
 static TimerHandle_t baud_rate_watchdog_timer;
 static int8_t baud_rate_idx;
-static int baud_rates[] = { 9600, 230400, 38400, 57600, 115200, };
+static int baud_rates[] = { 9600, 230400, /* 38400, 57600, 115200, */ };
 
 static uint8_t buf[BUF_SIZE + 1], *wr = buf;
 static struct timeval recv_tv;
