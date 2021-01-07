@@ -435,6 +435,10 @@ Then we can set the system clock to the timestamp got from the GPS, which will b
 Only somewhat, because it takes time for the GPS to send that data to us through a serial link: some hundreds of bits, at
 9600 bps by default, or 230400 if we switch to that.
 
+To reduce the transmission delay we switch the Neo-6 to a vendor-specific UBX binary protocol and enable only those messages
+that are actually needed for location and timestamp data (i.e. no satellite status info, etc.) The code still contains a
+standard NMEA parser, so if a different GPS chip is used, all it takes is to toggle a `#define` in `gps.c`.
+
 NOTE: The uBlox Neo-6 GPS could emit a _timepulse_, a separate signal that marks the exact time of the reception, with that
 we could get sub-microsecond accuracy ... but those wires aren't published on the usual GPS drop-in modules.
 
@@ -492,7 +496,10 @@ check and handle every dynamic allocations, but not all the SDK component librar
 
 After some runtime diagnostics a lot of SDK parameters have been finetuned, including the stack sizes of the event loop (0.5k
 gain here), the idle task (another 0.5k), the timer task (1k gain), the main task (1.5k), the tcp/ip task (0.5k), the wifi ppt
-task (0.5k).
+task (0.5k). This step needed some trickery, as some of these settings have overly high minimal limits, so `sdkconfig` doesn't
+accept any value. Fortunately the `sdkconfig` items are collected from various places that are sorted alphabetically and the
+first definition wins, so all we needed was an otherwise empty component `unit/components/_Kconfig_overrides`, see `Kconfig`
+there (it also contains examples how to add custom menus and items).
 
 Also note that in FreeRTOS when a task finishes, its stack is freed up by the idle task, so until it gets to run, there is no
 garbage collection, so we had to add explicite sync points in the process to wait for the idle task and its `prvCheckTasksWaitingTermination()`.
@@ -523,6 +530,31 @@ hunt for freeable bytes in older codes when we are OOM later.
 
 So please read the code with keeping in mind the fact that here the whole heap is below 50k, task stacks are measured in
 100s of bytes, and it's not at all like the "don't care about leaks, the user will restart it" desktop world.
+
+
+### Reproducible builds
+
+As we're distributing firmwares in a binary form, it's a must that we shall be able to reproduce any version anytime.
+It's a [well documented](https://reproducible-builds.org/docs/) subject, take some time to skim through those docs first.
+
+Unfortunately the [official SDK](https://github.com/espressif/ESP8266_RTOS_SDK.git) that we're using is ripe with sources
+of irreproducibily: a bunch of source ordering issues and some timestamps as well.
+
+I've tracked down such issues until now the builds are reproducible. For details see [the patch](./unit/misc/ESP8266_RTOS_SDK.reproducible.diff) 
+
+The timestamps that get hardwired into the binaries brought in a design question: what should those "source epoch"
+timestamps represent? To be reproducible, fully committed (no local change) sources should use the last commit timestamp,
+but sources with local changes should use something newer, like the current time.
+
+Which opens another can of worms: in case of a partial build, what would happen with the timestamps hardwired in modules
+that are _not_ rebuilt? Well, they cannot remain unchanged, so they must be rebuilt forcibly. That's why those source
+epoch timestamps in this project aren't just some defined symbols, but they got a separate global variable defined by a
+separate module (`epoch.c`).
+
+Details within details again: if you look at the `Makefile` you'll wonder why that complicated rain dance about removing
+`epoch.o` and not just make it `PHONY`. The SDK uses a multi-level make system where the Makefiles aren't including one another,
+but there are nested `make` calls. The objects like `epoch.o` are built on some deeper level, so defining it PHONY on the top
+level wouldn't do anything at all. (Yes, it was "fun" to track this, too.)
 
 
 ### ESP8266 hardware details
@@ -652,6 +684,10 @@ openssl pkcs8 -in gps_unit_0.key -outform der -nocrypt -out gps_unit_0.key.der
 ```
 (The files `gps_unit_0.csr` and `gps_unit_0.key` are no longer needed, they may be deleted.)
 
+To test/access the OTA server from desktop:
+```
+curl -v --key-type DER --key gps_unit_0.key.der --cert-type DER --cert gps_unit_0.crt.der https://ota.wodeewa.com/ota/gps-unit.desc
+```
 
 #### Unit and "Backend" server
 
