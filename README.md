@@ -12,7 +12,7 @@ you need a dedicated physical device that
  - connects to some network
  - sends the location to some server
 
-Piece of cake. Grab an ESP8266 SoC controller (it has wifi support and a serial port), hook a GPS (like a uBlox Neo-6) to it,
+Piece of cake. Grab an ESP8266 SoC controller (it has WiFi support and a serial port), hook a GPS (like a uBlox Neo-6) to it,
 read from the GPS, write to the network, a dozen lines in MicroPython and done. Or is it?
 
 For a one-piece self-used hobby thing it is, for a _mass product_ designed to be operated by _customers_ it isn't.
@@ -25,13 +25,13 @@ If, like most of people, you'd like to see the results first, then please just r
 
 ## System overview
 
-From hardware perspective, our system contains several individual [GPS units](#gps-units) and a [Backend server](#backend-server),
-only but the software picture is a bit more complex.
+From hardware perspective, our system contains several individual [GPS units](#gps-units) and a [Backend server](#backend-server)
+only, but the software picture is a bit more complex.
 
 1. Of course we have a [firmware](#unit-firmware) running on the units
 2. The clients provide a WiFi-accessible local [config UI](#local-ui-app) for customizing the essential settings
-3. The backend provides a [REST API](#backend-api) for the units, for the clients and for the system admins
-4. So we also have a (WebView-based) [Client app](#client-app)
+3. The backend provides a [REST API](#backend-api) for the units, for the customer app and for the system admin app
+4. So we also have a (WebView-based) [Customer app](#customer-app)
 5. And a technologically similar [Admin app](#admin-app)
 
 
@@ -55,11 +55,11 @@ After power-on it also checks for Over-the-Air updates from an update server, an
 automatically updates itself.
 
 To make the essential settings (WiFi credentials, update server URL, data server URL, SSL credentials, etc.) configurable, the
-unit can be switched to an "admin mode", in which it acts as a WiFi AP (its credentials are shown on the display as a QR-code),
-and if the user connects to that, it provides a web UI to manage these settings.
+unit can be switched to an "admin mode", in which it acts as a WiFi AP (its credentials are shown on the display as text and
+as QR-code), and if the admin connects to that, it provides a web UI to manage these settings.
 
 TODO:
-For normal operation the unit name shall be shown on the display (as text and as QR-code), so the client app can easily scan it
+For normal operation the unit name shall be shown on the display (as text and as QR-code), so the customer app can easily scan it
 and thus identify the unit.
 
 For compactness and performance reasons this firmware written in C. It uses the vendor-provided ESP8266 RTOS SDK, so it should
@@ -80,17 +80,17 @@ The backend server (that the units report their locations to) is accessible also
 https only. Actually it's three separate REST APIs:
 
  - One for receiving the units' reports, it uses a client-side SSL authentication scheme
- - One for providing data to the client apps, it uses a cloud-based authentication aggregator to support client logins
+ - One for providing data to the customer apps, it uses a cloud-based authentication aggregator to support client logins
    with external accounts like Google, Facebook, etc.
  - One for administration tasks, its access can be limited to the local intranet, may require client-side SSL certificate,
    and also may use any sort of authentication backend.
 
 
-## Client app
+## Customer app
 
 As of now, it's only a mock (around a fictive workflow for a scooter rental service) with no data connection whatsoever.
 
-A client app like this is inherently domain-specific, because the customers want *services* and not just raw display of
+A customer app like this is inherently domain-specific, because the customers want *services* and not just raw display of
 location data, so without an actual service workflow, no data presentation makes any sense.
 
 Moreover, service workflows are usually not passive, so they rely on customer decisions and actions, like taking or returning
@@ -112,12 +112,12 @@ TODO: implement these at least
 
 So, the details behind this complexity :).
 
-First of all, what wifi shall a unit connect to (I mean the SSID and the password) ? Yours at home, or the one of the customer?
+First of all, what WiFi shall a unit connect to (I mean the SSID and the password) ? Yours at home, or the one of the customer?
 
 If it's going to be a _product_, then we can't expect the customer to change some lines in a µPython script and re-flash it
-to the devices (and have the developer infrastructure needed for that) every time the wifi password is changed, especially not
+to the devices (and have the developer infrastructure needed for that) every time the WiFi password is changed, especially not
 to _every_ device one by one, and not even keeping a developer to do that. We'll need some _local unit config process_ that is
-simple and fast and straightforward enough so a technician (who has dozens of othe tasks besides this one) can do it for
+simple and fast and straightforward enough so a technician (who has dozens of other tasks besides this one) can do it for
 a hundred units in one shift, can't brick any unit by mistake (because mistakes can't be avoided) and doesn't need any
 sophisticated equipment for this.
 
@@ -129,7 +129,7 @@ intruder can't obtain or fake that data. (Stealing the data is just one thing, d
 is also a threat.)
 
 Suppose we have all the data on that server, valid and secure and all that, but then ... what shall we do with it? Obviously we
-need some sort of _customer client app_ that displays and manipulates that data (like tracking _my_ pizza order, or _my_ dog, or
+need some sort of _customer app_ that displays and manipulates that data (like tracking _my_ pizza order, or _my_ dog, or
 take/return _my_ shopping cart, etc.) Yes, it involves more access control, and this time it's not just some company-internal
 cart registry but big-time real-world external auth like sign-in with Google or Facebook or LinkedIn.
 
@@ -138,7 +138,7 @@ like sign-up new users, confirmation emails, deleting such accounts, etc.
 
 And then it's not just the customers who need a client, but the _administrators_, too. Like a customer is interested in
 the location of _his_ pizza order or _her_ dog or where the _nearest available_ shopping cart is, but an administrator
-is interested in the locations of _all_ deliveries and of _any_ dog and _all_ carts, etc. So we'll need an _admin client_ as
+is interested in the locations of _all_ deliveries and of _any_ dog and _all_ carts, etc. So we'll need an _admin app_ as
 well.
 
 Ugh. It's getting deeper, isn't it? And most of these things have actually nothing to do with location tracking, but they are
@@ -153,7 +153,7 @@ Let's clear these things up to get the big picture piece by piece, right?
 
 ### Local unit configuration
 
-Without wifi the actual physical units can be accessed only physically, so at least the wifi credentials (SSID + password) must
+Without WiFi the actual physical units can be accessed only physically, so at least the WiFi credentials (SSID + password) must
 be locally configurable.
 
 Some technicians will do this on a daily basis for a large number of units, so it must
@@ -170,7 +170,7 @@ In fact, the best would be a wireless and browser-based config interface, so all
 that's it. But that needs network, and that's what we want to configure in the first place. The chicken and the egg. 
 
 The usual solution for this is that the units have a special _admin mode_ that is activated by some (physically covered) button
-or similar thing, and in this mode the unit acts as a wifi AP, to which the technician can connect, and access the web interface
+or similar thing, and in this mode the unit acts as a WiFi AP, to which the technician can connect, and access the web interface
 of the unit.
 
 The usual weak point is the SSID and the password of this admin mode AP: if it is predictable (or worse: hardwired...), then
@@ -182,7 +182,7 @@ A random-generated SSID and password solves this, but then how to get this infor
 As the units have a small *OLED display*, we can display these information, and theoretically this solves the problem.
 
 Technically, having a human to enter two random-generated ascii garbage strings is both slow and error-prone, so it's
-better to display these as *QR-code wifi credentials*, so the technician just needs to scan it and his phone is already connected.
+better to display these as *QR-code WiFi credentials*, so the technician just needs to scan it and his phone is already connected.
 
 Then what? Can a microcontroller provide a full-fledged web interface? Yes, it can. Or rather it could, but we don't need it to.
 
@@ -196,18 +196,18 @@ can be as complex as needed, because it's running on the technicians mobile in a
 From the microcontrollers perspective it's just a big static hunk of data that it shall blast through to the browser when it
 asks for it, and then handle the incoming REST requests.
 
-Of course, details within details of details, so this part is a bit more complex than this :)
+Of course, details within details of details, so this part is a bit more complex too :)
 
 The ESP8266 can act as a WiFi AP, a mobile can connect to it, but then its OS (both Android and iOS) starts to complain that
 "No Internet Access", which is in fact true, but that's normal, so such an error message is just confusing and it's an extra
 step to have the user click it away.
 
-Both OSes detect the presence of the "Internet Access" by trying to determine the IP address of certain FQDNs, and if they
-don't get some IP address for them, then comes the whining about "No Internet Access".
+Both OSes detect the presence of the "Internet Access" by trying to determine the IP address of certain FQDNs and then fetch a
+web page `/generate_204` from it, and if any of these goes wrong, then comes the whining about "No Internet Access".
 
-So, we need a DNS server to respond to these queries... Yes, an RFC1035-compliant DNS server, on that microcontroller.
-No, the SDK doesn't have any such thing, so I had to write one, see `unit/components/dns_server` for the implementation and
-`unit/component/admin_mode` for how to use it.
+So, we need a DNS server to respond to these queries first... Yes, an RFC1035-compliant DNS server, on that microcontroller.
+No, the SDK doesn't have any such thing, so I had to write one, see [dns-server](./unit/components/dns_server) for the implementation and
+[admin-mode](./unit/component/admin_mode) for how to use it.
 
 Then we need an http server. Fortunately that's available in the SDK and works just fine out of the box, so that was easy.
 Well, sort of easy. The REST payloads are JSON documents, so using the SDK-provided `cJSON` seems obvious ... but it isn't.
@@ -220,10 +220,10 @@ that we can painstakingly traverse it recursively again - and all this for plain
 So we needed a partial but *allocless* and statemachine-based JSON parser. Ugly as it is, but welcome to the Land of Limited
 Resources :D , see the section about [memory considerations](#memory-considerations) below.
 
-And of course the a bunch of sweet little surprises, like scanning for available _other_ WiFi APs while we're in AP mode isn't
-possible (but it doesn't trigger an error, just an empty result). There is a mixed `APSTA` mode, where the ESP8266
-time-multiplexes its WiFi transceiver and simultaneously acts as an AP (towards the technicians mobile) and as a STA (for
-scanning other APs). A neat corner case, which didn't make it to the SDK documentation...
+And of course there were a bunch of sweet little surprises, like scanning for available _other_ WiFi APs while we're in AP mode
+isn't possible (but it doesn't trigger an error, just an empty result). There is, however, a mixed `APSTA` mode, where the
+ESP8266 time-multiplexes its WiFi transceiver and simultaneously acts as an AP (towards the technicians mobile) and as a STA
+(for scanning other APs). A neat corner case, which didn't make it to the SDK documentation...
 
 Speaking of AP scanning, it's a slow process, we can't pause the REST data flow that long. So, how to solve it?
 We start scanning when entering the admin mode, and when asked for the result, we present it, and immediately start a new scan.
@@ -235,25 +235,25 @@ Yet another small detail that had to be thought through...
 So, after all these detours, the microcontroller-side of this admin mode works like this:
 
 1. The technician presses the *service button*, the admin mode is started
-2. The microcontroller disconnects from its current wifi AP (if connected), generates a random SSID and password, and starts
+2. The microcontroller disconnects from its current WiFi AP (if connected), generates a random SSID and password, and starts
    acting like an AP
 3. The SSID and the password is shown on the OLED display both textually and as a QR code
-4. The technician scans the QR code with (or types the wifi creds to) his phone
+4. The technician scans the QR code with (or types the WiFi creds to) his phone
 
-NOTE: These parts guarantee that noone without actual physical access to the unit can enter the admin mode or connect to
-or redirect or sniff its wifi traffic. Having physical access means unrestricted access to the content of the flash, so
+NOTE: These parts guarantee that noone without actual physical access to the unit can enter the admin mode or connect to or
+redirect or sniff its WiFi traffic. Having physical access means unrestricted access to the content of the flash anyway, so
 it makes no sense trying to protect it beyond this point.
 
-5. When the technicians phone connected to this AP as a wifi client, the microcontroller starts a DNS server and a simplistic web server
+5. When the technicians phone connected to this AP as a WiFi client, the microcontroller starts a DNS server and a simplistic web server
 
 NOTE: The web server works with plain `http` only, because at this point the microcontroller doesn't necessarily knows the current
 time, which is a hard requirement for TLS, so https could not be guaranteed. Moreover, https would need a server certificate and its
 private key, and the technician is just about to upload these.
 
 6. The URL of the web admin UI (served by the microcontroller) is shown both as text and as QR code
-7. The technician scans the UI link QR code as well, his browser fetches the UI SPA and shows it
+7. The technician scans the UI link QR code as well, his browser fetches the UI SPA and executes it
 8. Using the menus and inputs of the UI the technician can perform the local administration tasks
-   (See the details at the "Admin UI" section below)
+   (See the details at the [Admin UI](#local-admin-ui) section below)
 9. The client-side UI and the microcontroller communicate on a standard REST API
 10. The admin mode ends when the technician reboots the unit via the UI
 
@@ -375,15 +375,16 @@ Anyhow, that's in the SDK, so that's what we use, and at least now you know the 
 
 But back to validation of the OTA servers cert:
 
-As at this point the unit does not necessarily know the current time (although it may, if the GPS already got a location!),
-the "Not Before" and "Not After" validity checks may be skipped.
+ESP8266 has no realtime clock, so its system clock starts from zero at each reboot, so at this point the unit does not
+necessarily know the current time (although it may, if the GPS already got a location!), the "Not Before" and "Not After" 
+validity checks may be skipped.
 
 The updates are identified by their build timestamp, which is known both for the running and the available firmware, and if the
 running one is the newer, then it would be a downgrade, so the process is aborted and a normal boot follows
 
 The firmware revisions (build mtime, actually) are parsed from a separate descriptor file next to the firmware binary:
 ```
-name: GPS-unit.bin
+name: gps-unit.bin
 mtime: 1609276792
 size: 699184
 fletcher16: 53659
@@ -395,7 +396,7 @@ header option, then the server either sends us the new update (if it's newer tha
 `304 Not Modified` response if we're already up-to-date.
 
 Well, on Nginx (one of the most frequently used webserver) the _default_ interpretation of that `If-Modified-Since` means
-"if not modified at that exact moment". No mistake, instead of ">=" they interpret it as "!=". See the docs [here](http://nginx.org/en/docs/http/ngx_http_core_module.html#if_modified_since), and they even [explain](https://trac.nginx.org/nginx/ticket/93) why they think it's a good idea...
+"if not modified at that exact moment". Yes, instead of ">=" they interpret it as "!=". See the docs [here](http://nginx.org/en/docs/http/ngx_http_core_module.html#if_modified_since), and they even [explain](https://trac.nginx.org/nginx/ticket/93) why they think it's a good idea...
 
 It can be overridden, but it requires explicite nginx configuring, which most likely would be forgotten, and it would result
 in malfunction as either the same update would be flashed over again and again, or no update would be flashed anytime at all.
@@ -405,13 +406,19 @@ in malfunction as either the same update would be flashed over again and again, 
 But back to connecting to the OTA server:
 
 As an SSL client, the microcontroller uses a dedicated *client-side certificate*, which is checked by the server (see the
-nginx site definition `backend/pki/backend.wodeewa.com`), so the server publishes the updates only to the units.
+[nginx site definition](./backend/pki/backend.wodeewa.com)).
+
+Although "security by obscurity" is no security at all, this adds at least a layer of obscurity, so firmware binaries are
+published only for the units.
+
+The second reason is that client-side certificates provide a hard-to-spoof way to identify individual units, what we will
+definitely need for handling the location reports, but it also comes handy at the OTA phase too:
 
 
 #### Controllable
 
 As the units' client-side certificates contain unique and reliable unit identification (i.e. the "Subject" field of the cert),
-the server can distinguish based on this and those requests can be redirected or rewritten even on a per-unit basis, a handy
+the server can distinguish based on this, and the units' requests can be redirected or rewritten even on a per-unit basis, a handy
 thing for a gradual rolling update or an A-B testing, all of which requiring only one server-side configuration change.
 
 
@@ -424,7 +431,7 @@ it takes quite some time while the GPS receiver obtains it from the satellite do
 
 What shall we do while we don't have a valid GPS fix? Shall we just report the battery status every N seconds? Now we do.
 
-As of obtaining the almanac from the network, it's problematic. We don't have a realtime clock here, so until the first GPS fix
+As of obtaining the almanac from the network, it's problematic. We don't have a realtime clock, so until the first GPS fix
 we don't know the current time either. But without a valid time we cannot trustworthily verify an https certificate either,
 because we can't tell if it's expired or not. So we can't verify the authenticity of the server from where we would bring
 the almanac data, so it can be tampered with, we can't trust it.
@@ -436,13 +443,12 @@ Only somewhat, because it takes time for the GPS to send that data to us through
 9600 bps by default, or 230400 if we switch to that.
 
 To reduce the transmission delay we switch the Neo-6 to a vendor-specific UBX binary protocol and enable only those messages
-that are actually needed for location and timestamp data (i.e. no satellite status info, etc.) The code still contains a
-standard NMEA parser, so if a different GPS chip is used, all it takes is to toggle a `#define` in `gps.c`.
+that are actually needed for location and timestamp data (i.e. no satellite status info, etc.) The code still contains the
+standard NMEA parser, so if a different GPS chip is used, all it takes is to toggle a `#define` in [gps.c](./gps.c).
 
 NOTE: The uBlox Neo-6 GPS could emit a _timepulse_, a separate signal that marks the exact time of the reception, with that
 we could get sub-microsecond accuracy ... but those wires aren't published on the usual GPS drop-in modules.
-
-FIXME: On the other hand, on a purpose-designed _product_ we can very well connect that timepulse output to an input of the
+On the other hand, on a purpose-designed _product_ we can very well connect that timepulse output to an input of the
 microcontroller, and then we'll really achieve that clock accuracy. It'll require some coding, but nothing problematic.
 
 So now we set the system clock to the _reception time_ of the data packet, that's still below 5 ms delay, so we can live with
@@ -470,9 +476,14 @@ delay is, so we switch the GPS from 9600 bps to 230400 bps... and open a can of 
 
 After power-on the GPS is set to 9600 bps (we could change that, but then every unit would need some pre-installment setup
 procedure, and we don't want that), but in the first steps we (non-permanently) switch it to 230400 bps, and it's reset only
-by a power cycle, and at a microcontroller reset or restart *it isn't*. So when our code starts up, it may find the GPS still
+by a power cycle, and by a microcontroller reset or restart *it isn't*. So when our code starts, it may find the GPS still
 at 9600, or already at 230400. We must test for both: if there is no data coming for 3 seconds (normally a packet comes every
 second), then we switch to the next speed option and try listening on that one.
+
+Remember about switching the GPS to the UBX protocol? Same issue here again: at power-up the GPS sends us 6 types of NMEA
+messages, but we change it to send 3 types of UBX messages instead. After a reset or a restart we start anew, but the GPS
+stays as it is, so we'll start by receiving UBX messages and no NMEA. Therefore we check for all of them, and parse whatever
+messages we receive.
 
 
 ### Memory considerations
@@ -486,6 +497,9 @@ I quote the most informative paragraph from the product datasheet:
     ... when ESP8266EX is working under the Station mode and connects to the router, the maximum programmable space accessible
     in Heap + Data section is around 50 kB. ...
 
+([Unofficially](https://github.com/esp8266/esp8266-wiki/wiki/Memory-Map#memory-layout) it seems to have 96k data-ram and
+32k instruction-ram)
+
 In addition to (or rather substraction from) that is that for each SSL connection `mbedtls` eats up about 15k as well.
 And the RTOS also has quite a lot of memory overhead, stacks for each system task and internal buffers for TCP/IP and so on.
 
@@ -495,17 +509,17 @@ check and handle every dynamic allocations, but not all the SDK component librar
 "very bad idea (tm)" here...
 
 After some runtime diagnostics a lot of SDK parameters have been finetuned, including the stack sizes of the event loop (0.5k
-gain here), the idle task (another 0.5k), the timer task (1k gain), the main task (1.5k), the tcp/ip task (0.5k), the wifi ppt
+gain here), the idle task (another 0.5k), the timer task (1k gain), the main task (1.5k), the tcp/ip task (0.5k), the WiFi ppt
 task (0.5k). This step needed some trickery, as some of these settings have overly high minimal limits, so `sdkconfig` doesn't
 accept any value. Fortunately the `sdkconfig` items are collected from various places that are sorted alphabetically and the
-first definition wins, so all we needed was an otherwise empty component `unit/components/_Kconfig_overrides`, see `Kconfig`
-there (it also contains examples how to add custom menus and items).
+first definition wins, so all we needed was an otherwise empty [component](./unit/components/_Kconfig_overrides/Kconfig)
+(it also contains examples how to add custom menus and items).
 
 Also note that in FreeRTOS when a task finishes, its stack is freed up by the idle task, so until it gets to run, there is no
 garbage collection, so we had to add explicite sync points in the process to wait for the idle task and its `prvCheckTasksWaitingTermination()`.
 
 With this we have about 16k free during normal operation, but this required another unusual practice: holding resources only
-as long as we actually need them:
+as long as we actually need them: seemingly unnecessary blocks within functions
 
 ```
     ...
@@ -524,8 +538,8 @@ buffer. The funny thing is that this practice can result more reliable codes, as
 requires more efforts to write and to read it as well.
 
 At quite a number of places the code contains "ugly" things like this, but usually with a good reason. `malloc` is not our
-friend here, and even if it seems that some bytes can be wasted here and there for code-aesthetics, they might mean an OOM
-situation when we add the next functionality. And it's far better to write a minimalistic code in the first place, then
+friend here, and even if it seems that some bytes could be wasted here and there for code-aesthetics, they might mean an OOM
+situation when we add the next functionality. And it's far better to write a minimalistic code in the first place, then to
 hunt for freeable bytes in older codes when we are OOM later.
 
 So please read the code with keeping in mind the fact that here the whole heap is below 50k, task stacks are measured in
@@ -534,7 +548,7 @@ So please read the code with keeping in mind the fact that here the whole heap i
 
 ### Reproducible builds
 
-As we're distributing firmwares in a binary form, it's a must that we shall be able to reproduce any version anytime.
+As we're distributing firmwares in a binary form, we must be able to reproduce any version anytime.
 It's a [well documented](https://reproducible-builds.org/docs/) subject, take some time to skim through those docs first.
 
 Unfortunately the [official SDK](https://github.com/espressif/ESP8266_RTOS_SDK.git) that we're using is ripe with sources
@@ -549,9 +563,9 @@ but sources with local changes should use something newer, like the current time
 Which opens another can of worms: in case of a partial build, what would happen with the timestamps hardwired in modules
 that are _not_ rebuilt? Well, they cannot remain unchanged, so they must be rebuilt forcibly. That's why those source
 epoch timestamps in this project aren't just some defined symbols, but they got a separate global variable defined by a
-separate module (`epoch.c`).
+separate module [epoch.c](./unit/components/misc/epoch.c).
 
-Details within details again: if you look at the `Makefile` you'll wonder why that complicated rain dance about removing
+Details within details again: if you look at the [Makefile](./unit/Makefile) you'll wonder why that complicated rain dance about removing
 `epoch.o` and not just make it `PHONY`. The SDK uses a multi-level make system where the Makefiles aren't including one another,
 but there are nested `make` calls. The objects like `epoch.o` are built on some deeper level, so defining it PHONY on the top
 level wouldn't do anything at all. (Yes, it was "fun" to track this, too.)
@@ -564,7 +578,7 @@ after the boot starts, these pins can be (and are...) reused, but the pull-up/do
 must be considered.
 
 For selecting flashing mode, a pushbutton is used to pull down GPIO0 *before power-up*. This means that it can't be reused
-to connect anything that would prevent it from being pulled to GND, or that couldn't take it being pulled to GND, or that would
+to connect anything that would prevent it from being pulled to GND, or that couldn't take being pulled to GND, or that would
 pull it down inadvertantly before a reset.
 
 Typically it's reused for some non-essential active-low output (like a status LED), but as it already has that nice pull-down
@@ -622,7 +636,7 @@ Conclusion:
 What's remaining:
  - GPIO1 for non-essential outputs (like status LEDs)
  - GPIO3 for non-essential outputs (like status LEDs), but if we cease supporting the emergency flashing, then it's completely available
- - GPIO12, GPIO14 completely available, has internal pull-up and pull-down resistors too
+ - GPIO12, GPIO14 completely available, have internal pull-up and pull-down resistors too
  - GPIO16 completely available, has only internal pull-down (can be used to wake up from deep sleep, not that we used that)
 
 
@@ -704,11 +718,11 @@ The unit is identified by the "CN=..." attribute of the Subject field of its cer
 will appear in the database.
 
 
-#### Customer client app and "Client" server
+#### Customer app and "Client" server
 
 In the demo the FQDN of this "Client" server is `client.wodeewa.com`.
 
-That client app is actually a web app, wrapped in a hybrid webview layer by CapacitorJS, so it's like a web app that runs in a
+That customer app is actually a web app, wrapped in a hybrid webview layer by CapacitorJS, so it's like a web app that runs in a
 browser on the customers mobile.
 
 If the customer don't want to install this Android/iOS app, it the can be opened right from this "Client" server, it's more
@@ -729,14 +743,14 @@ uses session cookies.
 
 Theoretically it would be possible to generate client-side certificates for the customers upon sign-up and subscription
 renewal, but it would be still too much of technical hassle for the customers:
- - he should generate a private-public key pair
- - he should fill in the details for a Certificate Signing Request (.csr)
+ - they should generate a private-public key pair
+ - they should fill in the details for a Certificate Signing Request (.csr)
  - send in the .csr some way to our "fake" CA
- - our "fake" CA should validate *SOMEHOW* that the sender is indeed who he tells he is (authentication)
+ - our "fake" CA should validate **SOMEHOW** that the sender is indeed who they tells they are (authentication)
  - our "fake" CA should check that the sender is indeed entitled to that certificate, eg. has paid for the service (authorization)
  - our "fake" CA should sign that .csr into a .crt certificate
  - send it back to the customer
- - he should install that cert (and the corresponding privte key) to his browsers keystore (or to the app if he uses that one)
+ - they should install that cert (and the corresponding privte key) to their browsers keystore (or to the app if they uses that one)
 
 First of all, the customers pay for a service and not for a comms security exercise, so they would rightfully refuse to do this
 manually, and that would cross out the online browser support.
