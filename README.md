@@ -654,7 +654,7 @@ So, we are talking about the following SSL-wrapped communication channels:
 
 #### Unit and "OTA" server
 
-In the demo the FQDN of this "OTA" server is `ota.wodeewa.com`.
+In the demo the FQDN of this "OTA" server is `backend.wodeewa.com`, the path within it is `/ota/`.
 
 The OTA server must have a valid certificate and the cert of the trusted CA that has signed it must be uploaded to the
 units via the local admin UI.
@@ -705,8 +705,8 @@ curl -v --key-type DER --key gps_unit_0.key.der --cert-type DER --cert gps_unit_
 
 #### Unit and "Backend" server
 
-In the demo the FQDN of this "Backend" server is `backend.wodeewa.com`. (Technically it's served by the same VM as the "OTA"
-server, but that's not a requirement.)
+In the demo the FQDN of this "Backend" server is `backend.wodeewa.com`. (Technically it's the same as the "OTA" server, but
+that's not a requirement.)
 
 Pretty much the same as with the OTA server. It even expects the Data server cert to be signed by the same CA as for the OTA
 server cert, which in practice doesn't necessarily has to be the same, so now it's a known limitation.
@@ -825,3 +825,27 @@ I don't want to copy their whole document store here, so only the key features:
    account deletion.
 
 
+## nginx config
+
+So we have three "servers" (in the good ol' apache era we would've called them "vhosts")
+ - [Backend](./unit/backend/pki/backend.wodeewa.com)
+ - [Client](./unit/backend/pki/client.wodeewa.com)
+ - [Admin](./unit/backend/pki/admin.wodeewa.com)
+
+ The "Admin" server is currently very similar to the "Client" server, only the paths are different.
+
+The common things: SSL only, same server cert and private key, same SSL settings, same gzip settings.
+
+Both servers have a `/v0` path-prefix that is routed to the common REST backend, although with different path structure: `client.wodeewa.com/v0` becomes `/client/v0` and `backend.wodeewa.com/v0` becomes `/backend/v0`.
+
+Note that `nginx` is performing the SSL termination, and in order to keep the original connection info, it passes them on as `X-Whatever` header fields.
+
+The other paths on both servers point to plain static content.
+
+The differences:
+
+The "Backend" server has a client-side certificate checking configured (`ssl_verify_client`, `if ($ssl_client_verify != SUCCESS) ...`)
+
+**Temporarily** the "Client" server has a basic user+pass auth configured to prevent internet-crawlers and uninvited visitors to accidentally access the under-development components.
+
+The static content of the "Backend" server are the OTA firmwares (descriptor file + binaries), the static content of the "Client" server is the Customer app.

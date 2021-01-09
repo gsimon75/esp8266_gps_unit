@@ -18,7 +18,7 @@ server {
 	gzip_types      text/plain text/css application/javascript application/xml application/json application/x-font-ttf font/opentype application/font-woff image/svg+xml application/vnd.ms-fontobject;
 
 	ssl_client_certificate /etc/nginx/pki/fake_ca.crt;
-	ssl_verify_client optional;
+	ssl_verify_client on;
 	ssl_verify_depth 2;
 
 	location /v0 {
