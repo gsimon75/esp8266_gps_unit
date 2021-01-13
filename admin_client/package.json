@@ -1,8 +1,8 @@
 {
-  "name": "com.wodeewa.alpha.ScooterFleet",
+  "name": "com.wodeewa.alpha.ScooterFleetAdmin",
   "version": "0.1.0",
   "private": true,
-  "description": "Sketch for a Scooter Fleet customer app",
+  "description": "Sketch for a Scooter Fleet admin app",
   "author": "Gabor Simon <gabor.simon75@gmail.com>",
   "scripts": {
     "serve": "vue-cli-service serve",
@@ -59,11 +59,11 @@
   "bugs": {
     "url": "https://github.com/gsimon75/esp8266_gps_unit/issues"
   },
-  "displayName": "ScooterFleet",
+  "displayName": "ScooterFleetAdmin",
   "homepage": "https://github.com/gsimon75/esp8266_gps_unit#readme",
   "license": "BSD-2-Clause",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gsimon75/esp8266_gps_unit.git"
+    "url": "git+https://github.com/gsimon75/scooter_fleet_client.git"
   }
 }
