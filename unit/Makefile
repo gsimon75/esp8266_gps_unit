@@ -15,7 +15,7 @@ MAKEFLAGS += -j1
 .NOTPARALLEL:
 .PHONY:		remove_epoch_obj
 remove_epoch_obj:
-			rm build/misc/epoch.o
+			rm -f build/misc/epoch.o
 #
 ##############################################################################
 
