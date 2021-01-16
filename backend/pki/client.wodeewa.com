@@ -18,7 +18,7 @@ server {
 	gzip_types      text/plain text/css application/javascript application/xml application/json application/x-font-ttf font/opentype application/font-woff image/svg+xml application/vnd.ms-fontobject;
 
 	location /v0 {
-		proxy_pass                            http://127.0.0.1:8080/client/;
+		proxy_pass                            http://127.0.0.1:8080/client/v0;
 		proxy_set_header Host                 $host;
 		proxy_set_header X-Real-IP            $remote_addr;
 		proxy_set_header X-Forwarded-For      $proxy_add_x_forwarded_for;
@@ -27,7 +27,7 @@ server {
 
 	location / {
 		autoindex off;
-		root /home/fules/src/esp8266_gps_unit/client/www/;
+		root /home/fules/src/esp8266_gps_unit/customer_client/www/;
 		
 		# For SPA routers: if a virtual route is requested, serve the app instead
 		try_files $uri $uri/ /index.html;

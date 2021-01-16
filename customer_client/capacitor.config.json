@@ -1,0 +1,1 @@
+{"appId":"com.wodeewa.alpha.ScooterFleet","appName":"ScooterFleet","bundledWebRuntime":false,"webDir":"/home/fules/src/esp8266_gps_unit/customer_client/dist/bundled","android":{"webContentsDebuggingEnabled":true},"plugins":{"CapacitorFirebaseAuth":{"providers":["google.com"],"languageCode":"en","nativeAuth":false,"permissions":{}}}}

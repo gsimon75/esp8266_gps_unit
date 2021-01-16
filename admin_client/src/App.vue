@@ -1,321 +1,225 @@
 <template>
     <v-app id="app">
-        <v-app-bar color="primary" short dark>
-            <v-icon>{{ mdiScooterElectric }}</v-icon>
-            <v-toolbar-title class="ma-2">Configure GPS Unit</v-toolbar-title>
-            <v-spacer/>
-
-            <template v-slot:extension>
-                <v-tabs v-model="tab" align-with-title>
-                    <v-tabs-slider color="yellow"></v-tabs-slider>
-                    <v-tab key="wifi">WiFi</v-tab>
-                    <v-tab key="ssl">SSL</v-tab>
-                    <v-tab key="ota">OTA</v-tab>
-                    <v-tab key="data">Data</v-tab>
-                    <v-tab key="reboot">Reboot</v-tab>
-                </v-tabs>
-            </template>
+        <v-app-bar color="primary" short dense dark>
+            <v-app-bar-nav-icon @click.stop="drawer=!drawer"></v-app-bar-nav-icon>
+            <v-toolbar-title>{{ $store.state.app_bar_info }}</v-toolbar-title>
+            <v-spacer></v-spacer>
+            <span class="mr-2">{{ $store.getters.auth.name }}</span>
+            <v-btn to="/home" text><v-img class="shrink mr-2" contain src="./assets/logo.png" width="24px" height="24px"/></v-btn>
         </v-app-bar>
 
-        <v-alert v-model="show_error" dismissible type="error"> {{ error_message }} </v-alert>
-        <v-alert v-model="show_notification" dismissible type="success"> {{ notification_message }} </v-alert>
+        <v-navigation-drawer v-model="drawer" app clipped>
+             <v-list dense nav>
+                <v-list-item to="/take_scooter">
+                    <v-list-item-icon><v-icon>fas fa-biking</v-icon></v-list-item-icon>
+                    <v-list-item-content>Take scooter</v-list-item-content>
+                </v-list-item>
 
-        <v-tabs-items v-model="tab" class="main">
+                <v-list-item to="/return_scooter">
+                    <v-list-item-icon><v-icon>fas fa-bicycle</v-icon></v-list-item-icon>
+                    <v-list-item-content>Return scooter</v-list-item-content>
+                </v-list-item>
 
-            <v-tab-item key="wifi">
-                <v-list>
+                <v-list-item to="/site_map">
+                    <v-list-item-icon><v-icon>fas fa-map-marked-alt</v-icon></v-list-item-icon>
+                    <v-list-item-content>Site Map</v-list-item-content>
+                </v-list-item>
 
-                    <v-list-item>
-                        <v-select
-                            v-model="wifi.ssid"
-                            :items="wifi.scanned_ssids"
-                            label="Scanned SSID"
-                            :append-outer-icon="mdiReload"
-                            @click:append-outer="rescan_ssids"
-                        />
-                    </v-list-item>
+                <v-list-item to="/account">
+                    <v-list-item-icon><v-icon>fas fa-user</v-icon></v-list-item-icon>
+                    <v-list-item-content>Account</v-list-item-content>
+                </v-list-item>
 
-                    <v-list-item>
-                        <v-text-field
-                            v-model="wifi.ssid"
-                            label="SSID"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="update_ssid"
-                        />
-                    </v-list-item>
+                <v-list-item to="/signin">
+                    <v-list-item-icon><v-icon>fas fa-sign-in-alt</v-icon></v-list-item-icon>
+                    <v-list-item-content>Sign in</v-list-item-content>
+                </v-list-item>
 
-                    <v-list-item>
-                        <v-text-field
-                            v-model="wifi.password"
-                            label="Password"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="update_password"
-                        />
-                    </v-list-item>
+             </v-list>
+        </v-navigation-drawer>
 
-                </v-list>
-            </v-tab-item>
+        <v-main style="height: calc(100vh - 48px - 56px); overflow-y: scroll; z-index:0;">
+            <router-view/>
+        </v-main>
 
-            <v-tab-item key="ssl">
-                <v-list>
-
-                    <v-list-item>
-                        <v-file-input show-size
-                            v-model="ssl.pkey"
-                            label="Unit Private Key"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="upload_pkey"
-                        />
-                    </v-list-item>
-
-                    <v-list-item>
-                        <v-file-input show-size
-                            v-model="ssl.cert"
-                            label="Unit Certificate"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="upload_cert"
-                        />
-                    </v-list-item>
-
-                    <v-list-item>
-                        <v-file-input show-size
-                            v-model="ssl.cacert"
-                            label="CA Certificate"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="upload_cacert"
-                        />
-                    </v-list-item>
-
-                </v-list>
-            </v-tab-item>
-
-            <v-tab-item key="ota">
-                <v-list>
-
-                    <v-list-item>
-                        <v-text-field
-                            v-model="ota.url"
-                            label="Server URL"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="update_ota_url"
-                        />
-                    </v-list-item>
-
-                </v-list>
-            </v-tab-item>
-
-            <v-tab-item key="data">
-                <v-list>
-
-                    <v-list-item>
-                        <v-text-field
-                            v-model="server.url"
-                            label="Data Server URL"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="update_data_url"
-                        />
-                    </v-list-item>
-
-                    <v-list-item>
-                        <v-text-field
-                            type="number" min="1" max="3600"
-                            v-model="server.time_threshold"
-                            label="Time threshold (sec)"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="update_data_time_threshold"
-                        />
-                    </v-list-item>
-
-                    <v-list-item>
-                        <v-text-field
-                            type="number" min="1" max="1000"
-                            v-model="server.distance_threshold"
-                            label="Distance threshold (m)"
-                            :append-outer-icon="mdiUpload"
-                            @click:append-outer="update_data_distance_threshold"
-                        />
-                    </v-list-item>
-
-                </v-list>
-            </v-tab-item>
-
-            <v-tab-item key="reboot">
-                <v-list>
-
-                    <v-list-item>
-                        <v-btn color="error" @click="reboot" rounded block>Reboot</v-btn>
-                    </v-list-item>
-
-                </v-list>
-            </v-tab-item>
-
-        </v-tabs-items>
-
+         <v-bottom-navigation color="primary" dark>
+            <v-btn to="/take_scooter" text :disabled="!$store.state.near_station || ($store.state.near_station.ready <= 0)"><v-icon>fas fa-biking</v-icon></v-btn>
+            <v-btn to="/return_scooter" text :disabled="!$store.state.near_station || ($store.state.near_station.free <= 0) || ($store.getters.scooters_in_use.length == 0)"><v-icon>fas fa-bicycle</v-icon></v-btn>
+            <v-btn to="/" text :disabled="true"><v-icon>fas fa-home</v-icon></v-btn>
+            <v-btn to="/site_map" text><v-icon>fas fa-map-marked-alt</v-icon></v-btn>
+         </v-bottom-navigation>
     </v-app>
 </template>
 
 <script>
 
-import { mdiUpload, mdiReload, mdiScooterElectric } from "@mdi/js";
-
 export default {
     name: "app",
     data: () => ({
-        mdiUpload, mdiReload, mdiScooterElectric,
-        tab: null,
-        show_error: false,
-        error_message: null,
-        show_notification: false,
-        notification_message: null,
-        wifi: {
-            scanned_ssids: [ "alpha", "beta", "gamma", "delta" ],
-            ssid: null,
-            password: null,
-        },
-        ssl: {
-            pkey: null,
-            cert: null,
-            cacert: null,
-        },
-        ota: {
-            url: "https://ota.wodeewa.com/out/gps-unit.desc",
-        },
-        server: {
-            url: "https://alpha.wodeewa.com/gps-reports",
-            time_threshold: 30,
-            distance_threshold: 100,
-        },
+        drawer: null,
     }),
-    methods: {
-        error: function(msg) {
-            this.error_message = msg;
-            this.show_error = true;
-        },
-        notification: function(msg) {
-            this.notification_message = msg;
-            this.show_notification = true;
-        },
-        reboot: function() {
-            this.$http.post("/rest/reboot", {ssid: this.wifi.ssid}).then(() => {
-                this.notification("Reboot initiated");
-            }).catch(err => {
-                this.error("Reboot failed: " + err);
-            });
-        },
-        rescan_ssids: function() {
-            this.wifi.scanned_ssids = [];
-            this.$http.get("/rest/wifi/ssids").then(resp => {
-                if (!resp || !resp.data) {
-                    this.error("SSID list is empty");
-                    return;
-                }
-                resp.data.forEach((ssid) => {
-                    this.wifi.scanned_ssids.push(ssid);
-                });
-                this.notification("SSID list rescanned");
-            }).catch(err => {
-                this.error("SSID rescan failed: " + err);
-            });
-        },
-        update_ssid: function() {
-            this.$http.post("/rest/wifi/ssid", {ssid: this.wifi.ssid}).then(() => {
-                this.notification("SSID updated");
-            }).catch(err => {
-                this.error("SSID update failed: " + err);
-            });
-        },
-        update_password: function() {
-            this.$http.post("/rest/wifi/password", {password: this.wifi.password}).then(() => {
-                this.notification("Password updated");
-            }).catch(err => {
-                this.error("Password update failed: " + err);
-            });
-        },
-        upload_pkey: function() {
-            this.$http.post("/rest/ssl/pkey", this.ssl.pkey, { headers: {"Content-Type": "application/pkcs8"} } ).then(() => {
-                this.notification("SSL pkey updated");
-            }).catch(err => {
-                this.error("SSL pkey update failed: " + err);
-            });
-        },
-        upload_cert: function() {
-            this.$http.post("/rest/ssl/cert", this.ssl.cert, { headers: {"Content-Type": "application/x-x509-user-cert"} } ).then(() => {
-                this.notification("SSL cert updated");
-            }).catch(err => {
-                this.error("SSL cert update failed: " + err);
-            });
-        },
-        upload_cacert: function() {
-            this.$http.post("/rest/ssl/cacert", this.ssl.cacert, { headers: {"Content-Type": "application/x-x509-ca-cert"} } ).then(() => {
-                this.notification("SSL CA cert updated");
-            }).catch(err => {
-                this.error("SSL CA cert update failed: " + err);
-            });
-        },
-        update_ota_url: function() {
-            this.$http.post("/rest/ota/url", {ota_url: this.ota.url}).then(() => {
-                this.notification("OTA URL updated");
-            }).catch(err => {
-                this.error("OTA URL update failed: " + err);
-            });
-        },
-        update_data_url: function() {
-            this.$http.post("/rest/server/url", {data_url: this.server.url}).then(() => {
-                this.notification("DataServer URL updated");
-            }).catch(err => {
-                this.error("DataServer URL update failed: " + err);
-            });
-        },
-        update_data_time_threshold: function() {
-            this.$http.post("/rest/server/time_threshold", {data_time_threshold: this.server.time_threshold}).then(() => {
-                this.notification("DataServer time threshold updated");
-            }).catch(err => {
-                this.error("DataServer time threshold update failed: " + err);
-            });
-        },
-        update_data_distance_threshold: function() {
-            this.$http.post("/rest/server/distance_threshold", {data_distance_threshold: this.server.distance_threshold}).then(() => {
-                this.notification("DataServer distance threshold updated");
-            }).catch(err => {
-                this.error("DataServer distance threshold update failed: " + err);
-            });
-        },
+    created: function() {
+        console.log("App created");
+        this.$router.push("/exit_guard");
     },
 };
 </script>
 
 <style lang="scss">
+@import "~vuetify/src/styles/main.sass";
+
     :root {
         --app-bar-height: 48px;
-        --main-height: calc(100vh - var(--app-bar-height));
+        --bottom-nav-height: 56px;
+        --main-height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height));
     }
 
     #app {
-        font-family: Helvetica, Arial, sans-serif;
+        font-family: Avenir, Helvetica, Arial, sans-serif;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         text-align: center;
         color: #2c3e50;
-        height: 100vh;
     }
-</style>
 
-<style lang="scss" scoped>
-@import "~vuetify/src/styles/main.sass";
-
-    .v-app-bar {
+    #app > .v-app-bar {
         height: var(--app-bar-height);
         flex-grow: 0;
     }
 
-    .main {
-        flex-grow: 1;
-        padding: 2rem 1rem;
+    #app > .v-main {
+        height: var(--main-height);
+        overflow-y: scroll;
+        z-index:0;
     }
 
-    .v-alert {
-        margin: 1rem;
-        padding: 1rem;
+    #app > .v-bottom-navigation {
+        height: var(--bottom-bar-height);
+        flex-grow: 0;
+    }
+
+    .row-0 {
+        display: flex;
+        margin-right: 0;
+        margin-left: 0;
+        > .col, > [class*="col-"] {
+            padding: 0;
+        }
+    }
+
+    .row-1 {
+        @extend .row-0;
+        height: 8.3333333333%;
+    }
+
+    .row-2 {
+        @extend .row-0;
+        height: 16.6666666667%;
+    }
+
+    .row-3 {
+        @extend .row-0;
+        height: 25%;
+    }
+
+    .row-4 {
+        @extend .row-0;
+        height: 33.3333333333%;
+    }
+
+    .row-5 {
+        @extend .row-0;
+        height: 41.6666666667%;
+    }
+
+    .row-6 {
+        @extend .row-0;
+        height: 50%;
+    }
+
+    .row-7 {
+        @extend .row-0;
+        height: 58.3333333333%;
+    }
+
+    .row-8 {
+        @extend .row-0;
+        height: 66.6666666667%;
+    }
+
+    .row-9 {
+        @extend .row-0;
+        height: 75%;
+    }
+
+    .row-10 {
+        @extend .row-0;
+        height: 83.3333333333%;
+    }
+
+    .row-11 {
+        @extend .row-0;
+        height: 91.6666666667%;
+    }
+
+    .row-12 {
+        @extend .row-0;
+        height: 100%;
+    }
+
+    .background-energy {
+        background-color: map-get($lime, "lighten-4");
+    }
+    .color-energy {
+        color: map-get($lime, "darken-1");
+    }
+
+    .background-protein {
+        background-color: map-get($orange, "lighten-4");
+    }
+    .color-protein {
+        background-color: map-get($orange, "base");
+    }
+
+    .background-carbs {
+        background-color: map-get($purple, "lighten-4");
+    }
+    .color-carbs {
+        background-color: map-get($purple, "base");
+    }
+    .color-carbs-sub {
+        background-color: map-get($purple, "lighten-2");
+    }
+
+    .background-fat {
+        background-color: map-get($red, "lighten-4");
+    }
+    .color-fat {
+        background-color: map-get($red, "base");
+    }
+    .color-fat-sub {
+        background-color: map-get($red, "lighten-2");
+    }
+
+    .background-water {
+        background-color: map-get($blue, "lighten-4");
+    }
+    .color-water {
+        background-color: map-get($blue, "base");
+    }
+
+    .background-vitamin {
+        background-color: map-get($teal, "lighten-4");
+    }
+    .color-vitamin {
+        background-color: map-get($teal, "lighten-2");
+    }
+
+    .background-mineral {
+        background-color: map-get($green, "lighten-4");
+    }
+    .color-mineral {
+        background-color: map-get($green, "lighten-2");
     }
 
 </style>

@@ -16,7 +16,8 @@ module.exports = {
     chainWebpack: config => {
         config.plugins.delete("prefetch")
         config.module.rule("images").use("url-loader").loader("url-loader").tap(options => Object.assign(options, { limit: 131072 }))
-        config.plugin("VuetifyLoaderPlugin").tap(args => [{ }])
+        config.plugin("VuetifyLoaderPlugin").tap(args => [{
+        }])
     },
     outputDir: "www",
     publicPath: "",
