@@ -103,6 +103,18 @@ ssd1306_clear(i2c_port_t port) {
     return ssd1306_memset(port, 0, 128 * 8);
 }
 
+// send a dummy packet, don't even check the results
+static void
+send_dummy(i2c_port_t port) {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write(cmd, "\x00", 1, false);
+    i2c_master_stop(cmd);
+    i2c_master_cmd_begin(port, cmd, 1000);
+    i2c_cmd_link_delete(cmd);
+}
+
+
 esp_err_t
 ssd1306_init(i2c_port_t port, int sda_io, int scl_io) {
     static uint8_t init_cmd[] = {
@@ -155,6 +167,7 @@ ssd1306_init(i2c_port_t port, int sda_io, int scl_io) {
         printf("i2c_param_config failed; status=0x%02x\n", status);
         return status;
     }
+    send_dummy(port);
 
     i2c_cmd_handle_t cmd;
 
