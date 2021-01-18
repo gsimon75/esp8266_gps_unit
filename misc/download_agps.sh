@@ -10,6 +10,10 @@
 # NOTE: this is an eval token, valid until 16 Apr 2021 only. I hope I get my permanent token until then.
 TOKEN="pl8KPL_NJ0iCePXaG_X-gQ"
 
+# NOTE: Oops, the file is too big. 4472 + days * 6708 bytes. We have about 10k...
+# Maybe this offline thing isn't exactly for us
+# The online thing: curl -o online.all "https://online-live1.services.u-blox.com/GetOnlineData.ashx?token=pl8KPL_NJ0iCePXaG_X-gQ;format=aid;datatype=eph,alm,aux"
+
 RETRIES=4
 CONNECT_TIMEOUT=60
 MAX_TIME=300
@@ -20,9 +24,12 @@ SERVERS=(
 )
 
 DESTFILE="$HOME/src/esp8266_gps_unit/backend/ota/agps.dat"
+
+# 1, 2, 3, 5, 7, 10 or 14
+DAYS=14
 MIN_AGE_SEC=$((7 * 24*60*60))
 
-# check if it's fresher than 7 days
+# check if it's fresh enough
 if [ -r "$DESTFILE" ]; then
     FILE_MTIME=$(stat -c %Y "$DESTFILE")
     NOW=$(date +%s)
@@ -36,7 +43,7 @@ fi
 # try to fetch the file
 TEMPFILE="${DESTFILE}.tmp"
 for SERVER in "${SERVERS[@]}"; do
-    curl -o "$TEMPFILE" --location --fail --retry $RETRIES --max-time $MAX_TIME --connect-timeout $CONNECT_TIMEOUT "$SERVER/GetOfflineData.ashx?token=$TOKEN;gnss=gps;format=aid;days=14" && break
+    curl -o "$TEMPFILE" --location --fail --retry $RETRIES --max-time $MAX_TIME --connect-timeout $CONNECT_TIMEOUT "$SERVER/GetOfflineData.ashx?token=$TOKEN;gnss=gps;format=aid;days=$DAYS" && break
 done
 
 # fail noisily if the server refused it

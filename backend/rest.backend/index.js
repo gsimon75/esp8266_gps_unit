@@ -17,6 +17,7 @@ router.get("/healthz",          (req, res, next) => utils.mwrap(req, res, next, 
 
 // unit ops
 router.use("/report", require("./report"));
+//router.use("/agps", require("./agps"));
 
 
 module.exports = router;

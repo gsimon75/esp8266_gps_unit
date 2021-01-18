@@ -51,12 +51,13 @@ function mwrap(req, res, next, handler) {
             next();
         }
         else if (response == null) {
-            res.status(204);
-            res.end();
+            res.status(204).end();
+        }
+        else if (response instanceof Buffer) {
+            res.status(200).send(response);
         }
         else {
-            res.status(200);
-            res.json(response);
+            res.status(200).json(response);
         }
     }).catch(err => {
         if (err instanceof HTTPError) {
