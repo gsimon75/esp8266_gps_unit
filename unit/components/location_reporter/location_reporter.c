@@ -30,7 +30,6 @@ static char *DATA_SERVER_NAME, *DATA_SERVER_PORT, *DATA_PATH, *DATA_ENDPOINT;
 void
 location_reporter_task(void * pvParameters __attribute__((unused))) {
     esp_err_t res;
-    nvs_handle nvs;
     https_conn_context_t ctx;
     char *url = NULL;
     uint16_t time_trshld = 0, dist_trshld = 0;
@@ -44,51 +43,54 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         goto error;
     }
 
-    res = nvs_open("server", NVS_READONLY, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent LRep config: %d", res);
-        printf("LRep NVS error\n");
-        goto error;
-    }
-    else {
-        size_t url_len;
-        res = nvs_get_str(nvs, "url", NULL, &url_len);
+    {
+        nvs_handle nvs;
+        res = nvs_open("server", NVS_READONLY, &nvs);
         if (res != ESP_OK) {
-            ESP_LOGE(TAG, "Cannot find LRep URL in persistent config: %d", res);
-            printf("LRep URL error\n");
-            nvs_close(nvs);
+            ESP_LOGE(TAG, "Cannot find persistent LRep config: %d", res);
+            printf("LRep NVS error\n");
             goto error;
         }
-        url = (char*)malloc(url_len + 1);
-        if (!url) {
-            ESP_LOGE(TAG, "Out of memory");
-            printf("LRep mem error\n");
-            nvs_close(nvs);
-            goto error;
-        }
-        nvs_get_str(nvs, "url", url, &url_len);
-        url[url_len] = '\0';
+        else {
+            size_t url_len;
+            res = nvs_get_str(nvs, "url", NULL, &url_len);
+            if (res != ESP_OK) {
+                ESP_LOGE(TAG, "Cannot find LRep URL in persistent config: %d", res);
+                printf("LRep URL error\n");
+                nvs_close(nvs);
+                goto error;
+            }
+            url = (char*)malloc(url_len + 1);
+            if (!url) {
+                ESP_LOGE(TAG, "Out of memory");
+                printf("LRep mem error\n");
+                nvs_close(nvs);
+                goto error;
+            }
+            nvs_get_str(nvs, "url", url, &url_len);
+            url[url_len] = '\0';
 
-        res = nvs_get_u16(nvs, "time_trshld", &time_trshld);
-        if (res != ESP_OK) {
-            ESP_LOGW(TAG, "Cannot read LRep time threshold: %d", res);
+            res = nvs_get_u16(nvs, "time_trshld", &time_trshld);
+            if (res != ESP_OK) {
+                ESP_LOGW(TAG, "Cannot read LRep time threshold: %d", res);
+            }
+            else {
+                time_trshld_ticks = 1000UL * time_trshld / portTICK_PERIOD_MS;
+                ESP_LOGD(TAG, "Time threshold: %u sec = %u ticks", time_trshld, time_trshld_ticks);
+            }
+            res = nvs_get_u16(nvs, "dist_trshld", &dist_trshld);
+            if (res != ESP_OK) {
+                ESP_LOGW(TAG, "Cannot read LRep distance threshold: %d", res);
+            }
+            else {
+                dist_trshld_deg2 = 180.0 / M_PI * dist_trshld / R_Earth;
+                dist_trshld_deg2 *= dist_trshld_deg2;
+                ESP_LOGD(TAG, "Distance threshold: %u m = %e deg", dist_trshld, dist_trshld_deg2);
+            }
+
+            ESP_LOGI(TAG, "URL (len=%d) '%s'", url_len, url);
+            nvs_close(nvs);
         }
-        else {
-            time_trshld_ticks = 1000UL * time_trshld / portTICK_PERIOD_MS;
-            ESP_LOGD(TAG, "Time threshold: %u sec = %u ticks", time_trshld, time_trshld_ticks);
-        }
-        res = nvs_get_u16(nvs, "dist_trshld", &dist_trshld);
-        if (res != ESP_OK) {
-            ESP_LOGW(TAG, "Cannot read LRep distance threshold: %d", res);
-        }
-        else {
-            dist_trshld_deg2 = 180.0 / M_PI * dist_trshld / R_Earth;
-            dist_trshld_deg2 *= dist_trshld_deg2;
-            ESP_LOGD(TAG, "Distance threshold: %u m = %e deg", dist_trshld, dist_trshld_deg2);
-        }
-        
-        ESP_LOGI(TAG, "URL (len=%d) '%s'", url_len, url);
-        nvs_close(nvs);
     }
 
     if (!https_split_url(url, &DATA_SERVER_NAME, &DATA_SERVER_PORT, &DATA_PATH, &DATA_ENDPOINT)) {
@@ -122,6 +124,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
     }
 
     bool connected = https_connect(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT);
+
     {
         // try to find the CN (oid=2.5.4.3, [ 0x55, 0x04, 0x03 ]) from the subject DN
         mbedtls_x509_name *nn = &ctx.client_cert.subject;
@@ -148,6 +151,76 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         }
     }
     ESP_LOGI(TAG, "Unit CN: %s", unit_name);
+
+#ifdef USE_AGPS
+    // fetch the AGPS data and send it to gps
+    ESP_LOGI(TAG, "Waiting for GPS init");
+    xEventGroupWaitBits(main_event_group, GPS_CMDS_SENT_BIT, false, true, portMAX_DELAY);
+    task_info();
+    ESP_LOGI(TAG, "Fetching AGPS data");
+    {
+        uint8_t *agps_data = NULL;
+        do {
+            if (!connected) {
+                ESP_LOGI(TAG, "Reconnecting to LRep server");
+                if (!https_connect(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT)) {
+                    continue;
+                }
+                connected = true;
+            }
+            if (!https_send_request(&ctx, "GET", DATA_SERVER_NAME, DATA_PATH, "agps", "Connection: keep-alive\r\n")) {
+                // couldn't send: conn closed?, reconnect, retry
+                ESP_LOGW(TAG, "Send failed, reconnect");
+                https_disconnect(&ctx);
+                connected = false;
+            }
+            else {
+                int status = https_read_statusline(&ctx);
+                while (https_read_header(&ctx, NULL, NULL)) {
+                    // FIXME: handle "Connection: close"
+                }
+                ESP_LOGD(TAG, "AGPS data length: %d", ctx.content_length);
+
+                uint8_t *chunk, *p;
+                size_t chunk_len;
+                if ((200 <= status) && (status < 300)) {
+                    agps_data = (uint8_t*)realloc(agps_data, ctx.content_length);
+                    p = agps_data;
+                }
+                else {
+                    p = NULL;
+                }
+                while (https_read_body_chunk(&ctx, &chunk, &chunk_len)) {
+                    if (p) {
+                        memcpy(p, chunk, chunk_len);
+                        p += chunk_len;
+                    }
+                }
+
+                if (status < 100) {
+                    // couldn't receive: conn closed?, reconnect, retry
+                    ESP_LOGW(TAG, "Recv failed, reconnect");
+                    https_disconnect(&ctx);
+                    connected = false;
+                }
+                else if ((200 <= status) && (status < 300)) {
+                    // success, done
+                    if (agps_data) {
+                        gps_add_agps(agps_data, ctx.content_length);
+                    }
+                }
+                else if ((400 <= status) && (status < 600)) {
+                    ESP_LOGE(TAG, "AGPS data refused: %d", status);
+                }
+            }
+        } while (!connected);
+        if (agps_data) {
+            free(agps_data);
+            agps_data = NULL;
+        }
+    }
+#endif // USE_AGPS
+
     float last_latitude = 90.0, last_longitude = 0;
     time_t last_time = 0;
 
@@ -235,7 +308,6 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         //ESP_LOGD(TAG, "Body (len=%d):\n%s", bodylen, body);
         //task_info();
 
-        int status = 0;
         do {
             if (!connected) {
                 ESP_LOGI(TAG, "Reconnecting to LRep server");
@@ -254,7 +326,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 connected = false;
             }
             else {
-                status = https_read_statusline(&ctx);
+                int status = https_read_statusline(&ctx);
                 ESP_LOGD(TAG, "Report status: %d", status);
                 while (https_read_header(&ctx, NULL, NULL)) {
                     // FIXME: handle "Connection: close"
@@ -271,14 +343,11 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 else if ((200 <= status) && (status < 300)) {
                     // success, done
                 }
-                else if ((400 <= status) && (status < 500)) {
-                    // re-sending the same data wouldn't help
-                    ESP_LOGE(TAG, "Data report refused: %d", status);
-                }
-                else if ((500 <= status) && (status < 600)) {
-                    // Theoretically it would make sense to re-send the same data, so when the server-side error is resolved, it could get
+                else if ((400 <= status) && (status < 600)) {
+                    // 4xx: re-sending the same data wouldn't help
+                    // 5xx: Theoretically it would make sense to re-send the same data, so when the server-side error is resolved, it could get
                     // through, but it would be obsolete then, so it's better just to drop this report and try again with the next one
-                    ESP_LOGW(TAG, "Data report refused: %d", status);
+                    ESP_LOGE(TAG, "Data report refused: %d", status);
                 }
             }
         } while (!connected);

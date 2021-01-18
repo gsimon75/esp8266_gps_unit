@@ -10,7 +10,7 @@
 #include <driver/uart.h>
 
 #undef LOG_LOCAL_LEVEL
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 
 #include <esp_log.h>
 #include <stdio.h>
@@ -31,14 +31,26 @@ gps_fix_t gps_fix;
 
 #define BUF_SIZE 128
 static QueueHandle_t uart0_queue;
-static TimerHandle_t baud_rate_watchdog_timer;
-static int8_t baud_rate_idx;
 static int baud_rates[] = { 9600, 230400, /* 38400, 57600, 115200, */ };
 
 static uint8_t buf[BUF_SIZE + 1], *wr = buf;
 static struct timeval recv_tv;
 
-static const uint8_t * init_msgs[] = {
+static const uint8_t * init_cmds[] = {
+    // NOTE: [0] *MUST* be the speed setting command
+    //"\xb5\x62\x06\x00\x00\x00\x06\x18", // poll current port settings
+    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x80\x25\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\x8e\x95", // set port1 to 9600,8n1
+    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\x96\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\x7f\x70", // set port1 to 34800,8n1
+    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\xe1\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\xca\xa9", // set port1 to 57600,8n1
+    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\xc2\x01\x00\x03\x00\x03\x00\x00\x00\x00\x00\xac\x5e", // set port1 to 115200,8n1
+    "\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\x84\x03\x00\x03\x00\x03\x00\x00\x00\x00\x00\x70\xc8", // set port1 to 230400,8n1
+
+    // NOTE: AGPS is *DISABLED*
+    // FIXME: just for testing, this is the 1st message of the AGPS data, an AID-INI
+    // there is some problem waiting for its ACK though...
+    // "\xb5\x62\x0b\x01\x30\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x5d\x08\x29\x6d\x43\x04\xb6\xdb\x09\x00\x10\x27\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x22\x00\x00\x00\x71\xfa",
+    //"\xb5\x62\x0b\x01\x00\x00\x0c\x2f", // poll AID-INI
+
     "\xb5\x62\x06\x01\x03\x00\xf0\x00\x00\xfa\x0f", // disable NMEA-GGA
     "\xb5\x62\x06\x01\x03\x00\xf0\x01\x00\xfb\x11", // disable NMEA-GLL
     "\xb5\x62\x06\x01\x03\x00\xf0\x02\x00\xfc\x13", // disable NMEA-GSA
@@ -47,42 +59,43 @@ static const uint8_t * init_msgs[] = {
 
 #ifdef USE_NMEA
     "\xb5\x62\x06\x01\x03\x00\xf0\x04\x01\xff\x18", // enable NMEA-RMC
-#else
-    "\xb5\x62\x06\x01\x03\x00\xf0\x04\x00\xfe\x17", // disable NMEA-RMC
 #endif // USE_NMEA
 
 #ifdef USE_UBX
     "\xb5\x62\x06\x01\x03\x00\x01\x02\x01\x0e\x47", // enable NAV-POSLLH
     "\xb5\x62\x06\x01\x03\x00\x01\x12\x01\x1e\x67", // enable NAV-VELNED
     "\xb5\x62\x06\x01\x03\x00\x01\x21\x01\x2d\x85", // enable NAV-TIMEUTC
-#else
+#endif // !USE_UBX
+
+#ifndef USE_NMEA
+    "\xb5\x62\x06\x01\x03\x00\xf0\x04\x00\xfe\x17", // disable NMEA-RMC
+#endif // USE_NMEA
+
+#ifndef USE_UBX
     "\xb5\x62\x06\x01\x03\x00\x01\x02\x00\x0d\x46", // disable NAV-POSLLH
     "\xb5\x62\x06\x01\x03\x00\x01\x12\x00\x1d\x66", // disable NAV-VELNED
     "\xb5\x62\x06\x01\x03\x00\x01\x21\x00\x2c\x84", // disable NAV-TIMEUTC
 #endif // !USE_UBX
 
-    // NOTE: leave the baudrate setting for the last, because we'll miss its ACK
-    //"\xb5\x62\x06\x00\x00\x00\x06\x18", // poll current port settings
-    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x80\x25\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\x8e\x95", // set port1 to 9600,8n1
-    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\x96\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\x7f\x70", // set port1 to 34800,8n1
-    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\xe1\x00\x00\x03\x00\x03\x00\x00\x00\x00\x00\xca\xa9", // set port1 to 57600,8n1
-    //"\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\xc2\x01\x00\x03\x00\x03\x00\x00\x00\x00\x00\xac\x5e", // set port1 to 115200,8n1
-    "\xb5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xc0\x08\x00\x00\x00\x84\x03\x00\x03\x00\x03\x00\x00\x00\x00\x00\x70\xc8", // set port1 to 230400,8n1
     NULL
 };
 
-static const uint8_t **cur_init_msg;
+static const uint8_t **current_cmd;
 
+static void got_ACK(bool is_ack, uint8_t clsID, uint8_t msgID);
 
 static bool
 send_ubx(const uint8_t *msg) {
     size_t len = 8 + le16dec(msg + 4);
-    //ESP_LOGV(TAG, "Sending %d bytes", len);
-    //hexdump(msg, len);
+    ESP_LOGV(TAG, "Sending UBX %d bytes", len);
+    hexdump(msg, len);
     int res = uart_write_bytes(UART_NUM_0, msg, len);
     if (res != len) {
         ESP_LOGE(TAG, "Failed to send complete message, sent=%d, len=%d", res, len);
         return false;
+    }
+    if (msg[2] == 0x0b) { // AID-* generates no ACK -> fake it
+        got_ACK(true, msg[2], msg[3]);
     }
     return true;
 }
@@ -99,6 +112,11 @@ process_new_fix(void) {
 static void
 process_new_time(uint64_t time_usec) {
     static bool first_fix = true;
+
+    if ((time_usec / 1e6) <= source_date_epoch) {
+        // runs earlier than the build time -> nonsense
+        return;
+    }
 
 #ifdef TIME_DRIFT_STATS
     static int64_t drift_total = 0;
@@ -196,56 +214,54 @@ got_GPRMC(char *msg) {
     // parse the quality
     fix.is_valid = field[2][0] == 'A';
 
-    if (fix.is_valid) {
-        // parse the datetime
-        struct tm dt;
-        double sec_frac;
-        dt.tm_isdst = 0;
-        if (4 != sscanf(field[1], "%02d%02d%02d%lf", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &sec_frac)) {
-            return false;
-        }
-        if (3 != sscanf(field[9], "%02d%02d%02d", &dt.tm_mday, &dt.tm_mon, &dt.tm_year)) {
-            return false;
-        }
+    // parse the datetime
+    struct tm dt;
+    double sec_frac;
+    dt.tm_isdst = 0;
+    if ((4 == sscanf(field[1], "%02d%02d%02d%lf", &dt.tm_hour, &dt.tm_min, &dt.tm_sec, &sec_frac))
+        && (3 == sscanf(field[9], "%02d%02d%02d", &dt.tm_mday, &dt.tm_mon, &dt.tm_year))
+        ) {
         --dt.tm_mon;
         dt.tm_year += 100;
         sec_frac += timegm(&dt);
         fix.time_usec = 1000000UL * sec_frac; // please don't comment. this whole date format is crap right from the beginning
-
-        // parse the location
-        int degree;
-        float minute;
-        if (2 != sscanf(field[3], "%02d%f", &degree, &minute)) {
-            return false;
-        }
-        fix.latitude = degree + (minute / 60.0);
-        if (field[4][0] == 'S')
-            fix.latitude = -fix.latitude;
-        if (2 != sscanf(field[5], "%03d%f", &degree, &minute)) {
-            return false;
-        }
-        fix.longitude = degree + (minute / 60.0);
-        if (field[6][0] == 'W')
-            fix.longitude = -fix.longitude;
-
-        // parse speed
-        if (1 != sscanf(field[7], "%f", &fix.speed_kph)) {
-            return false;
-        }
-        fix.speed_kph *= 1.852; // knots to kph. don't... please just don't. i also would've preferred earth radius per lunar phase cycle as a speed unit...
-
-        // parse azimuth
-        if (1 != sscanf(field[8], "%f", &fix.azimuth)) {
-            // valid if missing (eg. when standing still), use the last one in this case
-            fix.azimuth = gps_fix.azimuth;
-        }
     }
     else {
         fix.time_usec = 0;
+    }
+
+    // parse the location
+    int degree;
+    float minute;
+    if (2 == sscanf(field[3], "%02d%f", &degree, &minute)) {
+        fix.latitude = degree + (minute / 60.0);
+        if (field[4][0] == 'S')
+            fix.latitude = -fix.latitude;
+    }
+    else {
         fix.latitude = 0;
+    }
+    if (2 == sscanf(field[5], "%03d%f", &degree, &minute)) {
+        fix.longitude = degree + (minute / 60.0);
+        if (field[6][0] == 'W')
+            fix.longitude = -fix.longitude;
+    }
+    else {
         fix.longitude = 0;
+    }
+
+    // parse speed
+    if (1 == sscanf(field[7], "%f", &fix.speed_kph)) {
+        fix.speed_kph *= 1.852; // knots to kph. don't... please just don't. i also would've preferred earth radius per lunar phase cycle as a speed unit...
+    }
+    else {
         fix.speed_kph = 0;
-        fix.azimuth = 0;
+    }
+
+    // parse azimuth
+    if (1 != sscanf(field[8], "%f", &fix.azimuth)) {
+        // valid if missing (eg. when standing still), use the last one in this case
+        fix.azimuth = gps_fix.azimuth;
     }
 
     if (gps_fix.time_usec != fix.time_usec) {
@@ -255,14 +271,14 @@ got_GPRMC(char *msg) {
     taskENTER_CRITICAL();
     bool changed =
            (gps_fix.is_valid  != fix.is_valid)
-        || (gps_fix.time_usec  != fix.time_usec)
+        || (gps_fix.time_usec != fix.time_usec)
         || (gps_fix.latitude  != fix.latitude)
         || (gps_fix.longitude != fix.longitude)
         || (gps_fix.speed_kph != fix.speed_kph)
         || (gps_fix.azimuth   != fix.azimuth);
     if (changed) {
         gps_fix.is_valid  = fix.is_valid;
-        gps_fix.time_usec  = fix.time_usec;
+        gps_fix.time_usec = fix.time_usec;
         gps_fix.latitude  = fix.latitude;
         gps_fix.longitude = fix.longitude;
         gps_fix.speed_kph = fix.speed_kph;
@@ -297,13 +313,6 @@ got_nmea(const uint8_t *msg, size_t len) {
     if (chksum != shouldbe) {
         ESP_LOGE(TAG, "NMEA checksum error: is=%02x, shouldbe=%02x", chksum, shouldbe);
         return false;
-    }
-
-    xTimerReset(baud_rate_watchdog_timer, 0);
-    if (!cur_init_msg) {
-        cur_init_msg = init_msgs;
-        ESP_LOGI(TAG, "Sending init messages");
-        send_ubx(*cur_init_msg);
     }
 
     if (!strncmp(msg, "GPRMC,", 6)) {
@@ -415,6 +424,24 @@ got_NAV_VELNED(const uint8_t *payload) {
     }
 }
 
+static void
+got_ACK(bool is_ack, uint8_t clsID, uint8_t msgID) {
+    if (is_ack) {
+        ESP_LOGV(TAG, "UBX ACK-ACK for %02x,%02x", clsID, msgID);
+    }
+    else {
+        ESP_LOGW(TAG, "UBX ACK-NAK for %02x,%02x", clsID, msgID);
+    }
+    if (current_cmd[1]) {
+        ++current_cmd;
+        send_ubx(*current_cmd);
+    }
+    else {
+        ESP_LOGI(TAG, "All commands acknowledged");
+        xEventGroupSetBits(main_event_group, GPS_CMDS_SENT_BIT);
+        current_cmd = NULL;
+    }
+}
 
 static int
 got_ubx(const uint8_t *msg, size_t payload_len) {
@@ -435,29 +462,14 @@ got_ubx(const uint8_t *msg, size_t payload_len) {
         return false;
     }
 
-    xTimerReset(baud_rate_watchdog_timer, 0);
-
     switch (msg[2]) {
         case 0x05: // ACK-*
-            if (cur_init_msg) {
-                if ((msg[6] == (*cur_init_msg)[2]) && (msg[7] == (*cur_init_msg)[3])) {
-                    if (msg[3] != 0x01) {
-                        ESP_LOGW(TAG, "UBX ACK-NAK for %02x,%02x", msg[6], msg[7]);
-                    }
-                    else {
-                        //ESP_LOGV(TAG, "UBX ACK-ACK for %02x,%02x", msg[6], msg[7]);
-                    }
-                    if (cur_init_msg[1]) {
-                        ++cur_init_msg;
-                        send_ubx(*cur_init_msg);
-                    }
-                    else {
-                        ESP_LOGI(TAG, "All init messages acknowledged");
-                        task_info();
-                    }
+            if (current_cmd) {
+                if ((msg[6] == (*current_cmd)[2]) && (msg[7] == (*current_cmd)[3])) {
+                    got_ACK(msg[3] == 0x01, msg[6], msg[7]);
                 }
                 else {
-                    ESP_LOGW(TAG, "UBX ACK-* for unknown message: got=%02x,%02x, expected=%02x,%02x", msg[6], msg[7], (*cur_init_msg)[2], (*cur_init_msg)[3]);
+                    ESP_LOGW(TAG, "UBX ACK-* for unknown message: got=%02x,%02x, expected=%02x,%02x", msg[6], msg[7], (*current_cmd)[2], (*current_cmd)[3]);
                 }
             }
             break;
@@ -496,6 +508,7 @@ got_data(size_t available) {
         size_t rdlen =  buf + BUF_SIZE - wr;
         if (rdlen == 0) {
             ESP_LOGE(TAG, "Buffer overflow");
+            hexdump(buf, BUF_SIZE);
             wr = buf;
             rdlen = BUF_SIZE;
         }
@@ -515,6 +528,7 @@ got_data(size_t available) {
         uint8_t *rd = buf;
         while (rd < wr) {
             //ESP_LOGV(TAG, "Msg loop, wr=0x%x, rd=0x%x", wr - buf, rd - buf);
+            //hexdump(rd, wr - rd);
 
             if (rd[0] == '$') { // nmea message at the beginning (may be incomplete/invalid)
                 uint8_t *pos_crlf = memmem(rd, wr - rd, "\r\n", 2);
@@ -529,7 +543,7 @@ got_data(size_t available) {
             else if ((rd[0] == 0xb5) && (rd[1] == 0x62)) { // ubx message at the beginning (may be incomplete/invalid)
                 if ((rd + 5) < wr) { // long enough to already contain the length field
                     uint16_t m_len = le16dec(rd + 4);
-                    if ((rd + 8 + m_len) < wr) { // complete
+                    if ((rd + 8 + m_len) <= wr) { // complete
                         got_ubx(rd, m_len);
                         rd += 8 + m_len;
                         continue;
@@ -581,6 +595,16 @@ got_data(size_t available) {
 
 static void
 uart_event_task(void *pvParameters) {
+
+    current_cmd = init_cmds;
+    for (int baud_rate_idx = 0; baud_rate_idx < (sizeof(baud_rates) / sizeof(baud_rates[0])); ++baud_rate_idx) {
+        ESP_LOGI(TAG, "Setting baud rate %d", baud_rates[baud_rate_idx]);
+        uart_set_baudrate(UART_NUM_0, baud_rates[baud_rate_idx]);
+        send_ubx(*current_cmd);
+        uart_wait_tx_done(UART_NUM_0, (portTickType)portMAX_DELAY);
+    }
+
+    ESP_LOGI(TAG, "Serial receiver start");
     while (1) {
         uart_event_t event;
         if (xQueueReceive(uart0_queue, (void *)&event, (portTickType)portMAX_DELAY)) {
@@ -619,33 +643,69 @@ uart_event_task(void *pvParameters) {
     vTaskDelete(NULL);
 }
 
-static void
-try_next_baud_rate(TimerHandle_t xTimer) {
-    baud_rate_idx = (baud_rate_idx + 1) % (sizeof(baud_rates) / sizeof(baud_rates[0]));
-    ESP_LOGI(TAG, "Trying baud rate %d", baud_rates[baud_rate_idx]);
-    uart_set_baudrate(UART_NUM_0, baud_rates[baud_rate_idx]);
-}
-
 esp_err_t
 gps_init(void) {
     gps_fix.is_valid = false;
-    cur_init_msg = NULL;
     uart_config_t uart_config = {
-        .baud_rate = 1200,
+        .baud_rate = 9600,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
-    baud_rate_idx = -1;
-    try_next_baud_rate(NULL);
     uart_param_config(UART_NUM_0, &uart_config);
     uart_driver_install(UART_NUM_0, UART_FIFO_LEN + 1, 0, 100, &uart0_queue, 0);
-
-    baud_rate_watchdog_timer = xTimerCreate("gps", pdMS_TO_TICKS(3000), pdTRUE, NULL, try_next_baud_rate);
     xTaskCreate(uart_event_task, "gps", 2048, NULL, 12, NULL);
-    xTimerStart(baud_rate_watchdog_timer, 0);
+    return ESP_OK;
+}
 
+esp_err_t
+gps_add_agps(const uint8_t *data, size_t datalen) {
+    // NOTE: this is broken/unfinished, don't use it!
+    ESP_LOGI(TAG, "Processing AGPS data %d bytes", datalen);
+
+    // split data into UBX command list, only validate and count the commands first
+    unsigned int num_agps_cmds = 0;
+    const uint8_t *rd = data, *end = data + datalen;
+    while (rd < end) {
+        if (end < (rd + 8)) {
+            ESP_LOGE(TAG, "Incomplete UBX message at the end of AGPS data, offset=%u", rd - data);
+            return ESP_FAIL;
+        }
+        if ((rd[0] != 0xb5) || (rd[1] != 0x62)) {
+            ESP_LOGE(TAG, "Invalid UBX signature in AGPS data, offset=%u", rd - data);
+            return ESP_FAIL;
+        }
+        uint16_t m_len = le16dec(rd + 4);
+        if (end < (rd + 8 + m_len)) {
+            ESP_LOGE(TAG, "Incomplete UBX message at the end of AGPS data, offset=%u", rd - data);
+            return ESP_FAIL;
+        }
+        ++num_agps_cmds;
+        rd += 8 + m_len;
+    }
+    ESP_LOGI(TAG, "AGPS data valid, messages=%u", num_agps_cmds);
+
+    const uint8_t ** agps_cmds = (const uint8_t**)malloc((num_agps_cmds + 1) * sizeof(const uint8_t*));
+    if (!agps_cmds) {
+        ESP_LOGE(TAG, "Out of memory");
+        return ESP_FAIL;
+    }
+
+    // traverse the list again, now store pointers into agps_cmds
+    rd = data;
+    for (int i = 0; i < num_agps_cmds; ++i) {
+        // the message list structure has already been validated
+        agps_cmds[i] = rd;
+        rd += 8 + le16dec(rd + 4);
+    }
+    agps_cmds[num_agps_cmds] = NULL;
+
+    // start sending the commands and wait for finish (the ack of one message will send the next one)
+    xEventGroupClearBits(main_event_group, GPS_CMDS_SENT_BIT);
+    current_cmd = agps_cmds;
+    send_ubx(*current_cmd);
+    xEventGroupWaitBits(main_event_group, GPS_CMDS_SENT_BIT, false, true, portMAX_DELAY);
     return ESP_OK;
 }
 
