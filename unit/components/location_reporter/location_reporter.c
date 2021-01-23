@@ -6,6 +6,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
+#include <freertos/semphr.h>
 
 #include <esp_spi_flash.h>
 #include <esp_ota_ops.h>
@@ -26,9 +27,79 @@
 static const char *TAG = "lrep";
 
 static char *DATA_SERVER_NAME, *DATA_SERVER_PORT, *DATA_PATH, *DATA_ENDPOINT;
+static char unit_name[32] = "<unnamed>";
+static int unit_status = 0; // FIXME: not handled yet
+static char * unit_status_str[] = {
+    "Ready",        // 0
+    "In use",       // 1
+    "Charging",     // 2
+    "Repairs",      // 3
+    // ...
+};
+
+static SemaphoreHandle_t sem_running = NULL;
+static bool keep_running = false;
+static uint16_t adc_mV;
+
+static void
+init_status(void) {
+    lcd_clear();
+    lcd_puts(11, 0, unit_name);
+    lcd_puts(11, 1, unit_status_str[unit_status]);
+    //lcd_puts(11, 2, "");
+    //lcd_puts(11, 3, "+123.4567");
+    //lcd_puts(11, 4, " -12.3456");
+    //lcd_puts(11, 5, "2021-01-02");
+    //lcd_puts(11, 6, "11:22:33");
+    //lcd_puts(11, 7, "U=1.234V");
+    lcd_qr(unit_name, -1);
+}
+
+static void
+show_status(void) {
+    time_t tt;
+    struct tm t;
+    char buf[12];
+
+    time(&tt);
+    if (gps_fix.is_valid) {
+        gmtime_r(&tt, &t);
+   
+        snprintf(buf, sizeof(buf), "%+10.5f", gps_fix.latitude);
+        lcd_puts(11, 3, buf);
+        snprintf(buf, sizeof(buf), "%+10.5f", gps_fix.longitude);
+        lcd_puts(11, 4, buf);
+        snprintf(buf, sizeof(buf), "%04u-%02u-%02u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
+        lcd_puts(11, 5, buf);
+        snprintf(buf, sizeof(buf), " %02u:%02u:%02u " ,t.tm_hour, t.tm_min, t.tm_sec);
+        lcd_puts(11, 6, buf);
+        snprintf(buf, sizeof(buf), "U: %4u mV", adc_mV);
+        lcd_puts(11, 7, buf);
+    }
+    else {
+        lcd_puts(11, 3, "  no gps  ");
+        lcd_puts(11, 4, "  signal  ");
+        if (source_date_epoch < tt) {
+            gmtime_r(&tt, &t);
+            snprintf(buf, sizeof(buf), "%04u-%02u-%02u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
+            lcd_puts(11, 5, buf);
+            snprintf(buf, sizeof(buf), " %02u:%02u:%02u " ,t.tm_hour, t.tm_min, t.tm_sec);
+            lcd_puts(11, 6, buf);
+        }
+        else {
+            lcd_puts(11, 5, " no valid ");
+            lcd_puts(11, 6, "   time   ");
+        }
+        snprintf(buf, sizeof(buf), "U: %4u mV", adc_mV);
+        lcd_puts(11, 7, buf);
+    }
+}
 
 void
 location_reporter_task(void * pvParameters __attribute__((unused))) {
+        ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
+    xSemaphoreTake(sem_running, portMAX_DELAY);
+        ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
     esp_err_t res;
     https_conn_context_t ctx;
     char *url = NULL;
@@ -93,6 +164,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         }
     }
 
+        ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
     if (!https_split_url(url, &DATA_SERVER_NAME, &DATA_SERVER_PORT, &DATA_PATH, &DATA_ENDPOINT)) {
         ESP_LOGE(TAG, "Won't report location to insecure destination");
         printf("LRep security error\n");
@@ -111,8 +183,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         }
     }
 
-    char unit_name[32];
-
+        ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
     xEventGroupSetBits(main_event_group, LREP_RUNNING_BIT);
 
     ESP_LOGI(TAG, "Connecting to LRep server, name='%s', port='%s', path='%s', endpoint='%s'",
@@ -224,10 +295,10 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
     float last_latitude = 90.0, last_longitude = 0;
     time_t last_time = 0;
 
-    while (true) {
+    init_status();
+    for (keep_running = true; keep_running; ) {
         EventBits_t uxBits = xEventGroupWaitBits(main_event_group, GOT_GPS_FIX_BIT, false, true, time_trshld_ticks);
 
-        uint16_t adc_mV;
         {
             uint16_t raw_adc;
             res = adc_read(&raw_adc);
@@ -241,18 +312,11 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
             }
         }
 
+        show_status();
+
         unsigned int bodylen = 0;
         if ((uxBits & GOT_GPS_FIX_BIT) && gps_fix.is_valid) {
             time_t tt = gps_fix.time_usec / 1e6;
-            // 012345678901234567890
-            // -12.3456, -123.4567 
-            // 20201229 123456 3129
-            struct tm t;
-            gmtime_r(&tt, &t);
-            lcd_gotoxy(0, 6);
-            printf("\r%8.4f, %9.4f", gps_fix.latitude, gps_fix.longitude);
-            lcd_gotoxy(0, 7);
-            printf("\r%04u%02u%02u %02u%02u%02u %4u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec, adc_mV);
 
             // check if the time limit is exceeded
             bool do_send = time_trshld && ((last_time + time_trshld) < tt);
@@ -284,20 +348,13 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         else {
             time_t tt;
             time(&tt);
-            lcd_gotoxy(0, 6);
-            printf("\r<no gps signal yet>");
-            lcd_gotoxy(0, 7);
             if (source_date_epoch < tt) {
-                struct tm t;
-                gmtime_r(&tt, &t);
-                printf("\r%04u%02u%02u %02u%02u%02u %4u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec, adc_mV);
                 if (time_trshld && ((last_time + time_trshld) < tt)) {
                     last_time = tt;
                     bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"time\":%lu,\"bat\":%u}", unit_name, tt, adc_mV);
                 }
             }
             else {
-                printf("\r<no valid time> %4u", adc_mV);
                 bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"bat\":%u}", unit_name, adc_mV);
             }
         }
@@ -352,8 +409,10 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
             }
         } while (!connected);
     }
-    //https_disconnect(&ctx);
-    //https_destroy(&ctx);
+    if (connected) {
+        https_disconnect(&ctx);
+    }
+    https_destroy(&ctx);
 
 error:
     ESP_LOGI(TAG, "Location reporting stopped");
@@ -369,7 +428,36 @@ error:
     }
 
     xEventGroupClearBits(main_event_group, LREP_RUNNING_BIT);
+    xSemaphoreGive(sem_running);
     vTaskDelete(NULL);
+}
+
+esp_err_t
+location_reporter_start(void) {
+    if (!sem_running) {
+        sem_running = xSemaphoreCreateBinary();
+        xSemaphoreGive(sem_running);
+    }
+    xEventGroupClearBits(main_event_group, LREP_RUNNING_BIT);
+    BaseType_t res = xTaskCreate(location_reporter_task, "lrep", 6 * 1024, NULL, 5, NULL);
+    if (res != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create task; res=%d", res);
+        return ESP_FAIL;
+    }
+    xEventGroupWaitBits(main_event_group, LREP_RUNNING_BIT, false, true, portMAX_DELAY);
+    ESP_LOGI(TAG, "Started");
+    return ESP_OK;
+}
+
+esp_err_t
+location_reporter_stop(void) {
+    if (keep_running) {
+        keep_running = false;
+        xSemaphoreTake(sem_running, portMAX_DELAY);
+        xSemaphoreGive(sem_running);
+    }
+    ESP_LOGI(TAG, "Stopped");
+    return ESP_OK;
 }
 
 // vim: set sw=4 ts=4 indk= et si:

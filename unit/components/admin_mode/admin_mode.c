@@ -1038,9 +1038,11 @@ wifi_stop(void) {
 }*/
 
 
-void
+esp_err_t
 admin_mode_start(void) {
     wifi_init_ap();
+    ESP_LOGD(TAG, "Started");
+    return ESP_OK;
 }
 
 // vim: set sw=4 ts=4 indk= et si:

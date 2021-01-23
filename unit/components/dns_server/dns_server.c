@@ -1,9 +1,18 @@
 #include "dns_server.h"
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
+#undef LOG_LOCAL_LEVEL
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#include <esp_log.h>
+static const char *TAG = "dns_server";
+
 #include <string.h>
 #include <endian.h>
 
-static const char *TAG = "dns_server";
+static SemaphoreHandle_t sem_running = NULL;
+static bool keep_running = false;
 
 
 void
@@ -227,22 +236,24 @@ dns_write_dns_name(dns_buf_t* self, const char *src) {
     dns_write_u8(self, 0);
 }
 
+static int sock = -1;
 
 static void
 dns_server_task(void *pvParameters) {
+    xSemaphoreTake(sem_running, portMAX_DELAY);
     dns_policy_t fn = (dns_policy_t)pvParameters;
     uint8_t rx_buffer[512];
     dns_buf_t in;
     dns_buf_t out;
 
     ESP_LOGI(TAG, "DNS server task; fn=%p", fn);
-    while (1) {
+    for (keep_running = true; keep_running; ) {
         struct sockaddr_in dest_addr;
         dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
         dest_addr.sin_family = AF_INET;
         dest_addr.sin_port = htons(53);
 
-        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+        sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
             break;
@@ -255,7 +266,7 @@ dns_server_task(void *pvParameters) {
         }
         ESP_LOGI(TAG, "Socket bound;");
 
-        while (1) {
+        while (keep_running) {
             ESP_LOGI(TAG, "Waiting for data;");
             struct sockaddr_in source_addr; // Large enough for both IPv4 or IPv6
 
@@ -403,22 +414,45 @@ dns_server_task(void *pvParameters) {
 
         }
 
-        if (sock != -1) {
+        if (sock >= 0) {
             ESP_LOGE(TAG, "Shutting down socket and restarting...");
             shutdown(sock, 0);
             close(sock);
+            sock = -1;
         }
     }
+    xSemaphoreGive(sem_running);
     vTaskDelete(NULL);
 }
 
 esp_err_t
 dns_server_start(dns_policy_t fn) {
-    TaskHandle_t dns_task;
-    if (xTaskCreate(dns_server_task, TAG, 4096, (void*)fn, 5, &dns_task) != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create task; name='%s'", TAG);
+    if (!sem_running) {
+        sem_running = xSemaphoreCreateBinary();
+        xSemaphoreGive(sem_running);
+    }
+    BaseType_t res = xTaskCreate(dns_server_task, TAG, 4096, (void*)fn, 5, NULL);
+    if (res != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create task; res=%d", res);
         return ESP_FAIL;
     }
+    ESP_LOGI(TAG, "Started");
+    return ESP_OK;
+}
+
+esp_err_t
+dns_server_stop(void) {
+    if (keep_running) {
+        keep_running = false;
+        if (sock >= 0) {
+            shutdown(sock, 0);
+            close(sock);
+            sock = -1;
+        }
+        xSemaphoreTake(sem_running, portMAX_DELAY);
+        xSemaphoreGive(sem_running);
+    }
+    ESP_LOGI(TAG, "Stopped");
     return ESP_OK;
 }
 

@@ -247,8 +247,6 @@ ota_check_task(void * pvParameters __attribute__((unused))) {
     }
 
 close_conn:
-    ESP_LOGI(TAG, "OTA check done");
-
     if (url) {
         free(url);
         url = NULL;
@@ -256,8 +254,20 @@ close_conn:
     https_disconnect(&ctx);
     https_destroy(&ctx);
 
+    ESP_LOGI(TAG, "Finished");
     xEventGroupSetBits(main_event_group, OTA_CHECK_DONE_BIT);
     vTaskDelete(NULL);
+}
+
+esp_err_t
+ota_check_start(void) {
+    BaseType_t res = xTaskCreate(ota_check_task, "ota", 6 * 1024, NULL, 5, NULL);
+    if (res != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create task; res=%d", res);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Started");
+    return ESP_OK;
 }
 
 // vim: set sw=4 ts=4 indk= et si:

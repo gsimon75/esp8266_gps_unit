@@ -1,7 +1,9 @@
 #include "misc.h"
+#include "main.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/esp_freertos_hooks.h>
 
 #undef LOG_LOCAL_LEVEL
 #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
@@ -124,7 +126,28 @@ task_info(void) {
 
     /*struct mallinfo mi = mallinfo();
     ESP_LOGD(TAG, "mem heap=%u, hwm=%u, alloc=%u, free=%u", mi.arena, mi.usmblks, mi.uordblks, mi.fordblks);*/
+}
 
+
+static bool
+test_idle() {
+    ++idle_counter;
+    xEventGroupSetBits(main_event_group, IDLE_TASK_ACTIVE);
+    return true;
+}
+
+
+void
+wait_idle(void) {
+    xEventGroupClearBits(main_event_group, IDLE_TASK_ACTIVE);
+    xEventGroupWaitBits(main_event_group, IDLE_TASK_ACTIVE, false, true, portMAX_DELAY);
+}
+
+
+esp_err_t
+idle_start(void) {
+    esp_register_freertos_idle_hook(test_idle);
+    return ESP_OK;
 }
 
 // vim: set sw=4 ts=4 indk= et si:
