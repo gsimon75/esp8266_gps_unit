@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
+//#define INVERSE_FOR_QR
 
 static const char *TAG = "oled_stdout";
 
@@ -176,13 +177,19 @@ lcd_qr(const uint8_t *input, ssize_t input_length) {
                     pix8 |= 1 << yb;
                 }
             }
+#ifdef INVERSE_FOR_QR
             *(p++) = pix8;
+#else // INVERSE_FOR_QR
+            *(p++) = ~pix8;
+#endif // INVERSE_FOR_QR
         }
     }
     ssd1306_set_range(the_port, QR_OFFSET, QR_OFFSET + QR_SIZE - 1, 0, 7);
 
     ssd1306_send_data(the_port, tempBuffer, p - tempBuffer);
+#ifdef INVERSE_FOR_QR
     ssd1306_send_cmd_byte(the_port, SSD1306_DISPLAY_INVERSE);
+#endif // INVERSE_FOR_QR
     ssd1306_set_range(the_port, 0, 127, 0, 7);
     result = ESP_OK;
 

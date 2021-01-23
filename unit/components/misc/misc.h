@@ -1,6 +1,7 @@
 #ifndef MISC_H
 #define MISC_H
 
+#include <esp_system.h>
 #include <time.h>
 #include <stdint.h>
 
@@ -15,6 +16,9 @@ void hexdump(const uint8_t *data, ssize_t len);
 void task_info(void);
 extern uint32_t idle_counter;
 extern const uint32_t source_date_epoch;
+
+void wait_idle(void);
+esp_err_t idle_start(void);
 
 #endif // MISC_H
 // vim: set sw=4 ts=4 indk= et si:

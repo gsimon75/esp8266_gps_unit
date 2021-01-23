@@ -5,12 +5,12 @@
 #include "gps.h"
 #include "admin_mode.h"
 #include "location_reporter.h"
+#include "button.h"
 #include "misc.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/event_groups.h>
-#include <freertos/esp_freertos_hooks.h>
 #include <rom/ets_sys.h>
 #include <driver/gpio.h>
 
@@ -50,7 +50,7 @@ event_handler(void *ctx, system_event_t *event) {
             printf("IP:%s\n", ip_s);
             ESP_LOGI(TAG, "STA_GOT_IP %s", ip_s);
             xEventGroupSetBits(main_event_group, WIFI_CONNECTED_BIT);
-            xTaskCreate(ota_check_task, "ota", 6 * 1024, NULL, 5, NULL);
+            ota_check_start();
             break;
         }
 
@@ -149,106 +149,6 @@ wifi_init_sta(void) {
     return true;
 }
 
-static void
-wifi_stop(void) {
-    esp_event_loop_set_cb(NULL, NULL);
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_stop());
-}
-
-
-// ------------------------------------------------------------------------------
-
-
-static xQueueHandle gpio_evt_queue = NULL;
-static TimerHandle_t gpio_debounce_timer[GPIO_NUM_MAX] = { NULL };
-
-static void
-gpio_isr_handler(void *arg) {
-    if (arg) {
-        xTimerResetFromISR((TimerHandle_t)arg, 0);
-    }
-}
-
-
-static void
-gpio_debounce_expired(TimerHandle_t xTimer) {
-    uint8_t gpio_num = (uintptr_t)pvTimerGetTimerID(xTimer);
-    if (gpio_num < GPIO_NUM_MAX) {
-        if (gpio_get_level(gpio_num)) {
-            gpio_num |= 0x80;
-        }
-        xQueueSend(gpio_evt_queue, &gpio_num, 0);
-    }
-}
-
-static bool in_admin_mode = false;
-
-static void
-gpio_process_task(void *arg)
-{
-    while (true) {
-        uint8_t io_num;
-        if (!xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
-            break;
-        }
-        ESP_LOGI(TAG, "GPIO[%d]=%d", io_num & 0x7f, io_num & 0x80);
-        switch (io_num) {
-            case GPIO_BUTTON: {
-                if (in_admin_mode) {
-                    break;
-                }
-                ESP_LOGI(TAG, "Entering admin mode");
-                in_admin_mode = true;
-                // TODO: stop normal operation
-                wifi_stop();
-                admin_mode_start();
-                break;
-            }
-        }
-    }
-    ESP_LOGE(TAG, "GPIO queue error");
-    vTaskDelete(NULL);
-}
-
-
-static void
-gpio_debouncer_add(int gpio_num, int debounce_ms) {
-    if (gpio_debounce_timer[gpio_num]) {
-        xTimerChangePeriod(gpio_debounce_timer[gpio_num], pdMS_TO_TICKS(debounce_ms), 0);
-    }
-    else {
-        gpio_debounce_timer[gpio_num] = xTimerCreate("gpio", pdMS_TO_TICKS(debounce_ms), pdFALSE, (void*)gpio_num, gpio_debounce_expired);
-        gpio_isr_handler_add(gpio_num, gpio_isr_handler, gpio_debounce_timer[gpio_num]);
-    }
-}
-
-
-static void
-gpio_debouncer_remove(int gpio_num) {
-     gpio_isr_handler_remove(gpio_num);
-     xTimerDelete(gpio_debounce_timer[gpio_num], 0);
-     gpio_debounce_timer[gpio_num] = NULL;
-}
-
-
-static void
-button_init() {
-    gpio_evt_queue = xQueueCreate(GPIO_NUM_MAX, sizeof(uint8_t));
-    xTaskCreate(gpio_process_task, "gpio", 512, NULL, 10, NULL);
-    gpio_install_isr_service(0);
-
-    gpio_config_t io_conf = {
-        .pin_bit_mask = 1 << GPIO_BUTTON,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = 0,
-        .pull_down_en = 0,
-        .intr_type = GPIO_INTR_ANYEDGE,
-    };
-    gpio_config(&io_conf);
-    gpio_debouncer_add(GPIO_BUTTON, 300);
-}
-
-
 #ifdef SCREEN_TEST
 static void
 screen_test(void) {
@@ -284,20 +184,6 @@ screen_test(void) {
 }
 #endif // SCREEN_TEST
 
-static bool
-test_idle() {
-    ++idle_counter;
-    xEventGroupSetBits(main_event_group, IDLE_TASK_ACTIVE);
-    return true;
-}
-
-
-void
-wait_idle(void) {
-    xEventGroupClearBits(main_event_group, IDLE_TASK_ACTIVE);
-    xEventGroupWaitBits(main_event_group, IDLE_TASK_ACTIVE, false, true, portMAX_DELAY);
-}
-
 /*
 extern uint16_t test_tout();
 static void
@@ -316,9 +202,8 @@ void
 app_main()
 {
     ESP_LOGI(TAG, "main start");
-    esp_register_freertos_idle_hook(test_idle);
-
-    ssd1306_init(SSD1306_I2C, 4, 5);
+    idle_start();
+    ssd1306_init(SSD1306_I2C, 5, 4);
     lcd_init(SSD1306_I2C);
 
 #ifdef SCREEN_TEST
@@ -366,20 +251,22 @@ app_main()
         ESP_LOGW(TAG, "WiFi storage failed: %d", res);
     }
 
-    button_init(); // for admin mode
+    button_start(); // for admin mode
 
     if (wifi_init_sta()) {
         xEventGroupWaitBits(main_event_group, OTA_CHECK_DONE_BIT, false, true, portMAX_DELAY);
         wait_idle();
 
-        xTaskCreate(location_reporter_task, "lrep", 6 * 1024, NULL, 5, NULL);
-        xEventGroupWaitBits(main_event_group, LREP_RUNNING_BIT, false, true, portMAX_DELAY);
+ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
+        location_reporter_start();
+        ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
         wait_idle();
+        ESP_LOGD(TAG, "Checkpt in %s %s:%d", __FUNCTION__, __FILE__, __LINE__);
     }
 
     ESP_LOGI(TAG, "Up and running");
     printf("Ready\n");
-    gps_init();
+    gps_start();
 
     /*{
         adc_config_t cfg = {

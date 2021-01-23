@@ -7,6 +7,7 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 #include <freertos/event_groups.h>
+#include <freertos/semphr.h>
 #include <driver/uart.h>
 
 #undef LOG_LOCAL_LEVEL
@@ -27,6 +28,8 @@ extern uint64_t g_esp_os_us;
 //#define USE_NMEA
 #define USE_UBX
 
+static SemaphoreHandle_t sem_running = NULL;
+static bool keep_running = false;
 gps_fix_t gps_fix;
 
 #define BUF_SIZE 128
@@ -113,6 +116,7 @@ static void
 process_new_time(uint64_t time_usec) {
     static bool first_fix = true;
 
+    ESP_LOGD(TAG, "New time %lf", (double)time_usec / 1e6);
     if ((time_usec / 1e6) <= source_date_epoch) {
         // runs earlier than the build time -> nonsense
         return;
@@ -126,7 +130,7 @@ process_new_time(uint64_t time_usec) {
 
     static int current_freq = 160;
 
-    int64_t recv_usec = ((int64_t)recv_tv.tv_sec) * 1000000UL + recv_tv.tv_usec;
+    int64_t recv_usec = ((int64_t)recv_tv.tv_sec) * 1000000ULL + recv_tv.tv_usec;
     int64_t delta_usec = ((int64_t)time_usec) - recv_usec;
 
     if (__builtin_expect(first_fix, false)) { // no time set yet
@@ -174,7 +178,7 @@ process_new_time(uint64_t time_usec) {
         if (delta_usec < drift_min) {
             drift_min = delta_usec;
         }
-        ESP_LOGD(TAG, "new time, dt=%.0lf, drift=%.lf, avg_drift=[%d..%lf..%d], n=%d", (double)time_usec, (double)delta_usec, drift_min, (double)drift_total/drift_n, drift_max, drift_n);
+        ESP_LOGD(TAG, "Drift stat, dt=%.0lf, drift=%.lf, avg_drift=[%d..%lf..%d], n=%d", (double)time_usec, (double)delta_usec, drift_min, (double)drift_total/drift_n, drift_max, drift_n);
 #endif // TIME_DRIFT_STATS
 
     }
@@ -224,10 +228,10 @@ got_GPRMC(char *msg) {
         --dt.tm_mon;
         dt.tm_year += 100;
         sec_frac += timegm(&dt);
-        fix.time_usec = 1000000UL * sec_frac; // please don't comment. this whole date format is crap right from the beginning
+        fix.time_usec = 1000000ULL * sec_frac; // please don't comment. this whole date format is crap right from the beginning
     }
     else {
-        fix.time_usec = 0;
+        fix.time_usec = gps_fix.time_usec;
     }
 
     // parse the location
@@ -239,7 +243,7 @@ got_GPRMC(char *msg) {
             fix.latitude = -fix.latitude;
     }
     else {
-        fix.latitude = 0;
+        fix.latitude = gps_fix.latitude;
     }
     if (2 == sscanf(field[5], "%03d%f", &degree, &minute)) {
         fix.longitude = degree + (minute / 60.0);
@@ -247,7 +251,7 @@ got_GPRMC(char *msg) {
             fix.longitude = -fix.longitude;
     }
     else {
-        fix.longitude = 0;
+        fix.longitude = gps_fix.longitude;
     }
 
     // parse speed
@@ -255,7 +259,7 @@ got_GPRMC(char *msg) {
         fix.speed_kph *= 1.852; // knots to kph. don't... please just don't. i also would've preferred earth radius per lunar phase cycle as a speed unit...
     }
     else {
-        fix.speed_kph = 0;
+        fix.speed_kph = gps_fix.speed_kph;
     }
 
     // parse azimuth
@@ -343,7 +347,7 @@ got_NAV_POSLLH(const uint8_t *payload) {
     taskENTER_CRITICAL();
     bool changed = !gps_fix.is_valid || (gps_fix.latitude != latitude) || (gps_fix.longitude != longitude);
     if (changed) {
-        gps_fix.is_valid = true;
+        gps_fix.is_valid = (hAcc < 1000);
         gps_fix.latitude  = latitude;
         gps_fix.longitude = longitude;
     }
@@ -378,7 +382,8 @@ got_NAV_TIMEUTC(const uint8_t *payload) {
         .tm_sec = sec,
         .tm_isdst = 0,
     };
-    uint64_t time_usec = (1000000UL * timegm(&dt)) + (nano / 1000);
+    time_t time_sec = timegm(&dt);
+    uint64_t time_usec = (1000000ULL * time_sec) + (nano / 1000);
 
     if (gps_fix.time_usec != time_usec) {
         process_new_time(time_usec);
@@ -595,6 +600,8 @@ got_data(size_t available) {
 
 static void
 uart_event_task(void *pvParameters) {
+    xSemaphoreTake(sem_running, portMAX_DELAY);
+    uart_driver_install(UART_NUM_0, UART_FIFO_LEN + 1, 0, 100, &uart0_queue, 0);
 
     current_cmd = init_cmds;
     for (int baud_rate_idx = 0; baud_rate_idx < (sizeof(baud_rates) / sizeof(baud_rates[0])); ++baud_rate_idx) {
@@ -605,7 +612,7 @@ uart_event_task(void *pvParameters) {
     }
 
     ESP_LOGI(TAG, "Serial receiver start");
-    while (1) {
+    for (keep_running = true; keep_running; ) {
         uart_event_t event;
         if (xQueueReceive(uart0_queue, (void *)&event, (portTickType)portMAX_DELAY)) {
             switch (event.type) {
@@ -640,11 +647,18 @@ uart_event_task(void *pvParameters) {
             }
         }
     }
+    uart_driver_delete(UART_NUM_0);
+    xSemaphoreGive(sem_running);
     vTaskDelete(NULL);
 }
 
 esp_err_t
-gps_init(void) {
+gps_start(void) {
+    if (!sem_running) {
+        sem_running = xSemaphoreCreateBinary();
+        xSemaphoreGive(sem_running);
+    }
+    xEventGroupClearBits(main_event_group, GPS_CMDS_SENT_BIT);
     gps_fix.is_valid = false;
     uart_config_t uart_config = {
         .baud_rate = 9600,
@@ -654,8 +668,12 @@ gps_init(void) {
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
     uart_param_config(UART_NUM_0, &uart_config);
-    uart_driver_install(UART_NUM_0, UART_FIFO_LEN + 1, 0, 100, &uart0_queue, 0);
-    xTaskCreate(uart_event_task, "gps", 2048, NULL, 12, NULL);
+    BaseType_t res = xTaskCreate(uart_event_task, "gps", 2048, NULL, 12, NULL);
+    if (res != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create task; res=%d", res);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Started");
     return ESP_OK;
 }
 
@@ -706,6 +724,17 @@ gps_add_agps(const uint8_t *data, size_t datalen) {
     current_cmd = agps_cmds;
     send_ubx(*current_cmd);
     xEventGroupWaitBits(main_event_group, GPS_CMDS_SENT_BIT, false, true, portMAX_DELAY);
+    return ESP_OK;
+}
+
+esp_err_t
+gps_stop(void) {
+    if (keep_running) {
+        keep_running = false;
+        xSemaphoreTake(sem_running, portMAX_DELAY);
+        xSemaphoreGive(sem_running);
+    }
+    ESP_LOGI(TAG, "Stopped");
     return ESP_OK;
 }
 
