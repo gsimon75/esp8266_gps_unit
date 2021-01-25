@@ -20,7 +20,6 @@ typedef struct {
     unsigned char buf[HTTPS_CLIENT_BUFSIZE + 1];
     unsigned char *rdpos, *wrpos;
     size_t content_length, content_remaining;
-    bool error;
 } https_conn_context_t;
 
 bool https_init(https_conn_context_t *ctx);

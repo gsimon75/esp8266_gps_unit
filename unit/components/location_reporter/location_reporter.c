@@ -27,6 +27,7 @@
 static const char *TAG = "lrep";
 
 static char *DATA_SERVER_NAME, *DATA_SERVER_PORT, *DATA_PATH, *DATA_ENDPOINT;
+static uint32_t unit_nonce;
 static char unit_name[32] = "<unnamed>";
 static int unit_status = 0; // FIXME: not handled yet
 static char * unit_status_str[] = {
@@ -52,7 +53,9 @@ init_status(void) {
     //lcd_puts(11, 5, "2021-01-02");
     //lcd_puts(11, 6, "11:22:33");
     //lcd_puts(11, 7, "U=1.234V");
-    lcd_qr(unit_name, -1);
+    uint8_t buf[64];
+    size_t len = snprintf((char*)buf, sizeof(buf), "gpsunit://%s/%u", unit_name, unit_nonce);
+    lcd_qr(buf, len);
 }
 
 static void
@@ -221,12 +224,11 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
             strncpy(unit_name, "<unknown>", sizeof(unit_name));
         }
     }
-    ESP_LOGI(TAG, "Unit CN: %s", unit_name);
+    unit_nonce = esp_random();
+    ESP_LOGI(TAG, "Unit name='%s', nonce=0x%08x", unit_name, unit_nonce);
 
 #ifdef USE_AGPS
     // fetch the AGPS data and send it to gps
-    ESP_LOGI(TAG, "Waiting for GPS init");
-    xEventGroupWaitBits(main_event_group, GPS_CMDS_SENT_BIT, false, true, portMAX_DELAY);
     task_info();
     ESP_LOGI(TAG, "Fetching AGPS data");
     {
@@ -276,9 +278,10 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 }
                 else if ((200 <= status) && (status < 300)) {
                     // success, done
-                    if (agps_data) {
-                        gps_add_agps(agps_data, ctx.content_length);
-                    }
+                    ESP_LOGI(TAG, "Got AGPS data, len=%u", ctx.content_length);
+                    //if (agps_data) {
+                    //    gps_add_agps(agps_data, ctx.content_length);
+                    //}
                 }
                 else if ((400 <= status) && (status < 600)) {
                     ESP_LOGE(TAG, "AGPS data refused: %d", status);
@@ -297,7 +300,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
 
     init_status();
     for (keep_running = true; keep_running; ) {
-        EventBits_t uxBits = xEventGroupWaitBits(main_event_group, GOT_GPS_FIX_BIT, false, true, time_trshld_ticks);
+        EventBits_t uxBits = xEventGroupWaitBits(main_event_group, GOT_GPS_FIX_BIT | GOT_GPS_TIME_BIT, false, false, time_trshld_ticks);
 
         {
             uint16_t raw_adc;
@@ -341,8 +344,8 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 last_latitude = gps_fix.latitude;
                 last_longitude = gps_fix.longitude;
                 last_time = tt;
-                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"time\":%lu,\"lat\":%.4f,\"lon\":%.4f,\"azi\":%.0f,\"spd\":%.0f,\"bat\":%u}",
-                    unit_name, (unsigned long)(gps_fix.time_usec / 1e6), gps_fix.latitude, gps_fix.longitude, gps_fix.azimuth, gps_fix.speed_kph, adc_mV);
+                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"nonce\":%u,\"time\":%lu,\"lat\":%.4f,\"lon\":%.4f,\"azi\":%.0f,\"spd\":%.0f,\"bat\":%u}",
+                    unit_name, unit_nonce, (unsigned long)(gps_fix.time_usec / 1e6), gps_fix.latitude, gps_fix.longitude, gps_fix.azimuth, gps_fix.speed_kph, adc_mV);
             }
         }
         else {
@@ -351,11 +354,11 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
             if (source_date_epoch < tt) {
                 if (time_trshld && ((last_time + time_trshld) < tt)) {
                     last_time = tt;
-                    bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"time\":%lu,\"bat\":%u}", unit_name, tt, adc_mV);
+                    bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"nonce\":%u,\"time\":%lu,\"bat\":%u}", unit_name, unit_nonce, tt, adc_mV);
                 }
             }
             else {
-                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"bat\":%u}", unit_name, adc_mV);
+                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"nonce\":%u,\"bat\":%u}", unit_name, unit_nonce, adc_mV);
             }
         }
 
