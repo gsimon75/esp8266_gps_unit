@@ -4,6 +4,7 @@ pu baudrate         230400
 pu bits             8
 pu parity           N
 pu stopbits         1
+pu rtscts           No
 pu mdialpre         
 pu mdialsuf         
 pu mdialpre2        

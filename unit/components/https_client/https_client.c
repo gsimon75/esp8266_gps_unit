@@ -139,7 +139,6 @@ https_init(https_conn_context_t *ctx) {
     return true;
 
 close_conn:
-    ctx->error = true;
     return false;
 }
 
@@ -148,16 +147,13 @@ void
 https_disconnect(https_conn_context_t *ctx) {
     mbedtls_ssl_close_notify(&ctx->ssl);
     mbedtls_ssl_free(&ctx->ssl);
-    mbedtls_ssl_init(&ctx->ssl);
     mbedtls_net_free(&ctx->ssl_ctx);
-    mbedtls_net_init(&ctx->ssl_ctx);
 }
 
 
 bool
 https_connect(https_conn_context_t *ctx, const char *server_name, const char *server_port) {
-    mbedtls_net_init(&ctx->ssl_ctx);
-    mbedtls_ssl_init(&ctx->ssl);
+    //mbedtls_ssl_init(&ctx->ssl);
 
     esp_err_t res = mbedtls_net_connect(&ctx->ssl_ctx, server_name, server_port, MBEDTLS_NET_PROTO_TCP);
     if (res != 0) {
@@ -179,6 +175,14 @@ https_connect(https_conn_context_t *ctx, const char *server_name, const char *se
 
     mbedtls_ssl_set_bio(&ctx->ssl, &ctx->ssl_ctx, mbedtls_net_send, mbedtls_net_recv, NULL);
 
+    // Until we get a GPS fix, we don't know the time, so we can't check cert expiry.
+    // Either we reject all expired certs or we accept all of them.
+    // For the sake of being able to do OTA without GPS, *HERE* we accept them,
+    // but from security perspective this is a *BAD THING*.
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    bool no_valid_time = (tv.tv_sec < source_date_epoch);
+
     while (1) {
         res = mbedtls_ssl_handshake(&ctx->ssl);
         if (res == 0) {
@@ -191,25 +195,19 @@ https_connect(https_conn_context_t *ctx, const char *server_name, const char *se
     }
 
     res = mbedtls_ssl_get_verify_result(&ctx->ssl);
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    if (tv.tv_sec < source_date_epoch) {
-        // Until we get a GPS fix, we don't know the time, so we can't check cert expiry.
-        // Either we reject all expired certs or we accept all of them.
-        // For the sake of being able to do OTA without GPS, *HERE* we accept them,
-        // but from security perspective this is a *BAD THING*.
+    if (no_valid_time) {
         res &= ~MBEDTLS_X509_BADCERT_FUTURE;
     }
     if (res != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_get_verify_result returned 0x%x", res);
+        ESP_LOGD(TAG, "no_valid_time=%d, tv.tv_sec = %ld, source_date_epoch=%u", no_valid_time, tv.tv_sec, source_date_epoch);
         goto close_conn;
     }
 
-    ctx->error = false;
     return true;
 
 close_conn:
-    ctx->error = true;
+    https_disconnect(ctx);
     return false;
 }
 
@@ -223,11 +221,9 @@ send_buf(https_conn_context_t *ctx) {
         }
         else if ((res != MBEDTLS_ERR_SSL_WANT_READ) && (res != MBEDTLS_ERR_SSL_WANT_WRITE)) {
             ESP_LOGE(TAG, "mbedtls_ssl_write returned %d", res);
-            ctx->error = true;
             return false;
         }
     }
-    ctx->error = false;
     ctx->rdpos = ctx->wrpos = ctx->buf;
     return true;
 }
@@ -286,7 +282,6 @@ https_send_data(https_conn_context_t *ctx, const uint8_t *data, size_t datalen) 
         }
         else if ((res != MBEDTLS_ERR_SSL_WANT_READ) && (res != MBEDTLS_ERR_SSL_WANT_WRITE)) {
             ESP_LOGE(TAG, "mbedtls_ssl_write returned %d", res);
-            ctx->error = true;
             return false;
         }
     }
@@ -327,7 +322,6 @@ http_readline(https_conn_context_t *ctx) {
         ssize_t res = read_some(ctx);
         if (res <= 0) { // either error or eof before eol
             ESP_LOGE(TAG, "Read error before EOL: %d", res);
-            ctx->error = true;
             return NULL;
         }
         eol = (unsigned char*)memchr(ctx->wrpos, '\n', res); // search only in the data we read now
@@ -336,7 +330,6 @@ http_readline(https_conn_context_t *ctx) {
             return terminate_line();
         }
     }
-    ctx->error = true;
     ESP_LOGE(TAG, "Line too long, rdpos=0x%x, wrpos=0x%x", ctx->rdpos - ctx->buf, ctx->wrpos - ctx->buf);
     hexdump(ctx->buf, HTTPS_CLIENT_BUFSIZE);
     return NULL; // haven't returned yet -> buffer was too short for a line
@@ -352,7 +345,6 @@ https_read_statusline(https_conn_context_t *ctx) {
     unsigned char *sep = ustrchr(line, ' ');
     if (!sep) { // invalid response status line
         ESP_LOGE(TAG, "Malformed status line '%s'", line);
-        ctx->error = true;
         return -1;
     }
     return atoi((const char*)(sep + 1));
@@ -374,7 +366,6 @@ https_read_header(https_conn_context_t *ctx, unsigned char **name, unsigned char
     }
     unsigned char *sep = ustrchr(line, ':');
     if (!sep) { // malformed header line
-        ctx->error = true;
         return false;
     }
     for (*(sep++) = '\0'; *sep && ((*sep == ' ') || (*sep == '\t')); ++sep) {
@@ -415,7 +406,6 @@ https_read_body_chunk(https_conn_context_t *ctx, unsigned char **data, size_t *d
 
     ssize_t res = read_some(ctx);
     if (res <= 0) { // eof or error
-        ctx->error |= (res < 0);
         return false;
     }
  
