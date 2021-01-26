@@ -33,7 +33,7 @@ function gen_unit_credentials() {
     fi
     
     echo "Generating Unit credentials for '$UNIT_CN' as $UNIT_BASE.* ..."
-    [ -s "$UNIT_BASE.key" ] || openssl genrsa -out "$UNIT_BASE.key" 4096
+    [ -s "$UNIT_BASE.key" ] || openssl genrsa -out "$UNIT_BASE.key" 2048
     [ -s "$UNIT_BASE.p8" -a "$UNIT_BASE.p8" -nt "$UNIT_BASE.key" ] || openssl pkcs8 -topk8 -nocrypt -in "$UNIT_BASE.key" -outform der -out "$UNIT_BASE.p8"
     [ -s "$UNIT_BASE.csr" -a "$UNIT_BASE.csr" -nt "$UNIT_BASE.key" ] || openssl req -new -key "$UNIT_BASE.key" -subj "$UNIT_SUBJECT_BASEDN/CN=${UNIT_CN//\//\\\/}" -out "$UNIT_BASE".csr
     [ -s "$UNIT_BASE.crt.der" -a "$UNIT_BASE.crt.der" -nt "$UNIT_BASE.csr" ] || openssl x509 -req -CAkey "$CA_BASE.key" -CA "$CA_BASE.crt" -CAserial "$CA_BASE.srl" -days $UNIT_DAYS -in "$UNIT_BASE.csr" -outform der -out "$UNIT_BASE.crt.der"
