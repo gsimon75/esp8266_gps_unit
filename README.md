@@ -681,26 +681,16 @@ matters only at the OTA server: it must know the certificate of this CA so it ca
 The unit is identified by the "CN=..." attribute of the Subject field of its certificate, that's how it's possible to serve a
 different update for _some_ chosen set of units than for the rest.
 
-Example for generating such a local-level "fake" CA:
-```
-openssl req -days 3650 -x509 -extensions v3_ca -newkey rsa:4096 -keyout fake_ca.key -out fake_ca.crt
-openssl rand -hex 16 >fake_ca.srl
-```
+For generating such a local-level "fake" CA and unit credentials see [`gen_certs.sh`](./backend/pki/gen_certs.sh).
 
-Example for generating a private key and a certificate for a unit:
-```
-openssl genrsa -out gps_unit_0.key 4096
-openssl req -new -key gps_unit_0.key -out gps_unit_0.csr
-
-openssl x509 -req -CAkey fake_ca.key -CA fake_ca.crt -CAserial fake_ca.srl -days 1200 -in gps_unit_0.csr -outform der -out gps_unit_0.crt.der
-
-openssl pkcs8 -in gps_unit_0.key -outform der -nocrypt -out gps_unit_0.key.der
-```
-(The files `gps_unit_0.csr` and `gps_unit_0.key` are no longer needed, they may be deleted.)
+- `factory.p8` goes to `unit/nvs_data/unit.p8`
+- `factory.crt.der` goes to `unit/nvs_data/unit.crt.der`
+- `iot_ca.crt.der` does *NOT* go to `unit/nvs_data/ca.crt.der`, but to the backend server, so it can check the certs of the units
+- the files `*.csr` and `unit*.key` are no longer needed, they may be deleted
 
 To test/access the OTA server from desktop:
 ```
-curl -v --key-type DER --key gps_unit_0.key.der --cert-type DER --cert gps_unit_0.crt.der https://ota.wodeewa.com/ota/gps-unit.desc
+curl -v --key-type DER --key unit_1.p8 --cert-type DER --cert unit_1.crt.der https://backend.wodeewa.com/ota/gps-unit.desc
 ```
 
 #### Unit and "Backend" server
