@@ -20,7 +20,7 @@ module.exports = {
     },
     outputDir: "www",
     publicPath: "",
-    filenameHashing: true,
+    filenameHashing: process.env.NODE_ENV !== "production",
     transpileDependencies: [
         "vuetify",
     ],

@@ -281,6 +281,33 @@ export default {
             });
         },
     },
+    created: function () {
+        this.$http.get("/rest/wifi/ssid").then((resp, err) => {
+            if (resp && resp.ssid) {
+                this.wifi.ssid = resp.ssid;
+            }
+        });
+        this.$http.get("/rest/ota/url").then((resp, err) => {
+            if (resp && resp.ota_url) {
+                this.ota.url = resp.ota_url;
+            }
+        });
+        this.$http.get("/rest/server/url").then((resp, err) => {
+            if (resp && resp.data_url) {
+                this.server.url = resp.data_url;
+            }
+        });
+        this.$http.get("/rest/server/time_threshold").then((resp, err) => {
+            if (resp && resp.time_trshld) {
+                this.server.time_threshold = resp.time_trshld;
+            }
+        });
+        this.$http.get("/rest/server/distance_threshold").then((resp, err) => {
+            if (resp && resp.dist_trshld) {
+                this.server.distance_threshold = resp.dist_trshld;
+            }
+        });
+    },
 };
 </script>
 
