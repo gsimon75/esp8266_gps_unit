@@ -17,7 +17,7 @@ server {
 	gzip_proxied    expired no-cache no-store private auth;
 	gzip_types      text/plain text/css application/javascript application/xml application/json application/x-font-ttf font/opentype application/font-woff image/svg+xml application/vnd.ms-fontobject;
 
-	ssl_client_certificate /etc/nginx/pki/fake_ca.crt;
+	ssl_client_certificate /etc/nginx/pki/iot_ca.crt;
 	ssl_verify_client on;
 	ssl_verify_depth 2;
 

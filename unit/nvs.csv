@@ -3,9 +3,9 @@ wifi,namespace,,
 ssid,data,string,agifules2
 password,data,string,Pacikuki-192
 ssl,namespace,,
-pkey,file,binary,/proc/self/cwd/nvs_data/client.key.der
-cert,file,binary,/proc/self/cwd/nvs_data/client.crt.der
-cacert,file,binary,/proc/self/cwd/nvs_data/ota.ca.der
+pkey,file,binary,/proc/self/cwd/nvs_data/unit.p8
+cert,file,binary,/proc/self/cwd/nvs_data/unit.crt.der
+cacert,file,binary,/proc/self/cwd/nvs_data/ca.crt.der
 ota,namespace,,
 url,data,string,https://backend.wodeewa.com/ota/gps-unit.desc
 server,namespace,
