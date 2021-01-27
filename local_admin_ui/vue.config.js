@@ -1,3 +1,6 @@
+const HtmlWebpackPlugin = require("html-webpack-plugin")
+const HtmlWebpackInlineSourcePlugin = require("html-webpack-inline-source-plugin");
+
 module.exports = {
     devServer: {
         disableHostCheck: true,
@@ -14,9 +17,16 @@ module.exports = {
         }
     },
     chainWebpack: config => {
-        config.plugins.delete("prefetch")
-        config.module.rule("images").use("url-loader").loader("url-loader").tap(options => Object.assign(options, { limit: 131072 }))
-        config.plugin("VuetifyLoaderPlugin").tap(args => [{ }])
+        config.plugins.delete("prefetch");
+        config.plugins.delete("preload");
+        config.module.rule("images").use("url-loader").loader("url-loader").tap(options => Object.assign(options, { limit: 131072 }));
+        //config.plugin("VuetifyLoaderPlugin").tap(args => [{ }]);
+        config.plugin("html").tap(args => [{
+            filename: "index.html",
+            template: "public/index.html",
+            inlineSource: ".(js|css)$" // embed all javascript and css inline
+        }]);
+        config.plugin("htmlinline").use(HtmlWebpackInlineSourcePlugin, []);
     },
     outputDir: "www",
     publicPath: "",
