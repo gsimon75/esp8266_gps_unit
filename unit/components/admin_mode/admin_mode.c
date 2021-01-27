@@ -138,8 +138,16 @@ dns_policy(dns_buf_t *out, const char *name, dns_type_t type, dns_class_t _class
  * HTTPS Server helpers
  */
 
+// NOTE: nvs blob size limit is 2k, so it makes no sense to struggle for handling more...
 #define BUF_SIZE 2049
 static httpd_handle_t http_server = NULL;
+
+
+static void
+log_req(const httpd_req_t *req) {
+    ESP_LOGI(TAG, "%s %s (+ %u bytes)", http_method_str(req->method), req->uri, req->content_len);
+}
+
 
 static esp_err_t
 httpd_resp_empty(httpd_req_t *req, const char *status) {
@@ -336,6 +344,231 @@ decode_json_string(char *src) {
 }
 
 
+static esp_err_t
+nvs_str_from_attr(httpd_req_t *req, const char *attr, const char *nvs_part, const char *nvs_key) {
+    char body[128], value[128];
+    if (!httpd_read_short_body(req, body, sizeof(body))) {
+        return ESP_OK;
+    }
+    ESP_LOGD(TAG, "Request body '%s'", body);
+    if (!get_body_field(body, attr, value, sizeof(value))
+        || !decode_json_string(value)
+        ) {
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+
+    nvs_handle nvs;
+    esp_err_t res = nvs_open(nvs_part, NVS_READWRITE, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent config, part='%s', error=%d", nvs_part, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_str(nvs, nvs_key, value);
+    nvs_close(nvs);
+
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write persistent config, key='%s', error=%d", nvs_key, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    ESP_LOGI(TAG, "nvs.%s.%s='%s'", nvs_part, nvs_key, value);
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+
+static esp_err_t
+nvs_u16_from_attr(httpd_req_t *req, const char *attr, const char *nvs_part, const char *nvs_key) {
+
+    char body[65], value[32];
+    if (!httpd_read_short_body(req, body, sizeof(body))) {
+        return ESP_OK;
+    }
+    ESP_LOGD(TAG, "Request body '%s'", body);
+    if (!get_body_field(body, attr, value, sizeof(value))) {
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+
+    char *end = value;
+    long x = strtol(value, &end, 0);
+    if (*end || (x < 0) || (65535 < x)) {
+        ESP_LOGE(TAG, "Invalid u16, name='%s', value='%s'", attr, value);
+        return httpd_resp_empty(req, HTTPD_400);
+    }
+
+    nvs_handle nvs;
+    esp_err_t res = nvs_open(nvs_part, NVS_READWRITE, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent config, part='%s', error=%d", nvs_part, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_u16(nvs, nvs_key, x);
+    nvs_close(nvs);
+
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write persistent config, key='%s', error=%d", nvs_key, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    ESP_LOGI(TAG, "nvs.%s.%s=%lu=0x%lx", nvs_part, nvs_key, x, x);
+    // yes, I know printf("nvs.%1$s.%2$s=%3$u=0x%3$x", "alpha", "bravo", 42), but it costs more confusion than the performance it spares
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+
+static esp_err_t
+nvs_blob_from_body(httpd_req_t *req, const char *mime_type, const char *nvs_part, const char *nvs_key) {
+    char *body = (char*)malloc(BUF_SIZE);
+    if (!body) {
+        ESP_LOGE(TAG, "Out of memory");
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    if (!httpd_read_short_body(req, body, BUF_SIZE)) {
+        free(body);
+        return ESP_OK;
+    }
+    if (!httpd_check_content_type(req, mime_type)) {
+        return httpd_resp_empty(req, HTTPD_415);
+    }
+
+    nvs_handle nvs;
+    esp_err_t res = nvs_open(nvs_part, NVS_READWRITE, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent config, part='%s', error=%d", nvs_part, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_set_blob(nvs, nvs_key, body, req->content_len);
+    nvs_close(nvs);
+
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot write persistent config, key='%s', error=%d", nvs_key, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    ESP_LOGI(TAG, "nvs.%s.%s=(%u bytes)", nvs_part, nvs_key, req->content_len);
+    //hexdump(body, req->content_len);
+    free(body);
+    return httpd_resp_empty(req, HTTPD_204);
+}
+
+
+static esp_err_t
+attr_from_nvs_str(httpd_req_t *req, const char *attr, const char *nvs_part, const char *nvs_key) {
+    nvs_handle nvs;
+    esp_err_t res = nvs_open(nvs_part, NVS_READONLY, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent config, part='%s', error=%d", nvs_part, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    size_t value_len;
+    res = nvs_get_str(nvs, nvs_key, NULL, &value_len);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot read persistent config, key='%s', error=%d", nvs_key, res);
+        nvs_close(nvs);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    size_t attrlen = strlen(attr);
+    // {"...":"..."}\0
+    size_t resplen = 2 + attrlen + 3 + value_len + 3;
+    char *resp = (char *)malloc(1 + resplen);
+    if (!resp) {
+        ESP_LOGE(TAG, "Out of memory");
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+
+    char *p = resp;
+    *(p++) = '{';
+
+    *(p++) = '"';
+    p = stpcpy(p, attr);
+    *(p++) = '"';
+
+    *(p++) = ':';
+
+    *(p++) = '"';
+    nvs_get_str(nvs, nvs_key, p, &value_len);
+    nvs_close(nvs);
+    p += value_len - 1;
+    *(p++) = '"';
+
+    *(p++) = '}';
+    *p = '\0';
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, resp, p - resp);
+    free(resp);
+    return ESP_OK;
+}
+
+
+static esp_err_t
+attr_from_nvs_u16(httpd_req_t *req, const char *attr, const char *nvs_part, const char *nvs_key) {
+    nvs_handle nvs;
+    esp_err_t res = nvs_open(nvs_part, NVS_READONLY, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent config, part='%s', error=%d", nvs_part, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    uint16_t value;
+    res = nvs_get_u16(nvs, nvs_key, &value);
+    nvs_close(nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot read persistent config, key='%s', error=%d", nvs_key, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    size_t attrlen = strlen(attr);
+    size_t resplen = 2 + attrlen + 2 + 5 + 2;
+    char *resp = (char *)malloc(1 + resplen);
+    if (!resp) {
+        ESP_LOGE(TAG, "Out of memory");
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+
+    char *p = resp;
+    *(p++) = '{';
+
+    *(p++) = '"';
+    p = stpcpy(p, attr);
+    *(p++) = '"';
+
+    *(p++) = ':';
+
+    p += sprintf(p, "%u", value);
+
+    *(p++) = '}';
+    *p = '\0';
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, resp, p - resp);
+    free(resp);
+    return ESP_OK;
+}
+
+
+static esp_err_t
+body_from_nvs_blob(httpd_req_t *req, const char *mime_type, const char *nvs_part, const char *nvs_key) {
+    nvs_handle nvs;
+    esp_err_t res = nvs_open(nvs_part, NVS_READONLY, &nvs);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot find persistent config, part='%s', error=%d", nvs_part, res);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    size_t content_len = BUF_SIZE;
+    char *body = (char*)malloc(content_len);
+    if (!body) {
+        ESP_LOGE(TAG, "Out of memory");
+        nvs_close(nvs);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    res = nvs_get_blob(nvs, nvs_key, body, &content_len);
+    nvs_close(nvs);
+
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot read persistent config, key='%s', error=%d", nvs_key, res);
+        free(body);
+        return httpd_resp_empty(req, HTTPD_500);
+    }
+    httpd_resp_set_type(req, mime_type);
+    httpd_resp_send(req, body, content_len);
+    free(body);
+    return ESP_OK;
+}
+
+
 /******************************************************************************
  * HTTPS Server methods
  */
@@ -343,7 +576,7 @@ decode_json_string(char *src) {
 // ------------------------------------------------------------------------------
 static esp_err_t
 http_get_app(httpd_req_t *req) {
-    ESP_LOGI(TAG, "GET /app");
+    log_req(req);
     char enc[16];
 
     int res = httpd_req_get_hdr_value_str(req, "Accept-Encoding", enc, sizeof(enc));
@@ -370,7 +603,7 @@ httpd_uri_t uri_get_app = {
 // ------------------------------------------------------------------------------
 static esp_err_t
 http_get_generate_204(httpd_req_t *req) {
-    ESP_LOGD(TAG, "GET /generate_204");
+    log_req(req);
     return httpd_resp_empty(req, HTTPD_204);
 }
 
@@ -385,7 +618,7 @@ httpd_uri_t uri_get_generate_204 = {
 // ------------------------------------------------------------------------------
 static esp_err_t
 http_post_reboot(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/reboot");
+    log_req(req);
     TimerHandle_t timer = xTimerCreate("reboot", pdMS_TO_TICKS(1000), pdFALSE, NULL, (TimerCallbackFunction_t)esp_restart);
     if (!timer) {
         ESP_LOGE(TAG, "Failed to create reboot timer");
@@ -406,7 +639,7 @@ httpd_uri_t uri_post_reboot = {
 // ------------------------------------------------------------------------------
 static esp_err_t
 http_get_wifi_ssids(httpd_req_t *req) {
-    ESP_LOGI(TAG, "GET /rest/wifi/ssids");
+    log_req(req);
     size_t resplen = 1; // closing square at the end
     for (int i = 0; i < num_scanned_aps; ++i) {
         resplen += 1 + 1 + strlen(scanned_aps[i]) + 1; // opening square or comma, quote, string, quote
@@ -425,7 +658,8 @@ http_get_wifi_ssids(httpd_req_t *req) {
     }
     *(p++) = ']';
     *p = '\0';
-    httpd_resp_send(req, resp, resplen);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, resp, p - resp);
     free(resp);
     start_scan(); // start a new scan, so the user has a way to refresh the info
     return ESP_OK;
@@ -438,38 +672,27 @@ httpd_uri_t uri_get_wifi_ssids = {
     .handler   = http_get_wifi_ssids,
 };
 
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_get_wifi_ssid(httpd_req_t *req) {
+    log_req(req);
+    return attr_from_nvs_str(req, "ssid", "wifi", "ssid");
+}
+
+static const
+httpd_uri_t uri_get_wifi_ssid = {
+    .uri       = "/rest/wifi/ssid",
+    .method    = HTTP_GET,
+    .handler   = http_get_wifi_ssid,
+};
+
 
 // ------------------------------------------------------------------------------
 static esp_err_t
 http_post_wifi_ssid(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/wifi/ssid");
-    char body[65], value[32];
-    if (!httpd_read_short_body(req, body, sizeof(body))) {
-        return ESP_OK;
-    }
-    ESP_LOGD(TAG, "Request body '%s'", body);
+    log_req(req);
     // D (54662) admin: Request body '{"ssid":"charlie"}'
-    if (!get_body_field(body, "ssid", value, sizeof(value))
-        || !decode_json_string(value)
-        ) {
-        return httpd_resp_empty(req, HTTPD_400);
-    }
-
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("wifi", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent WiFi config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_str(nvs, "ssid", value);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write WiFi SSID to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New WiFi SSID '%s'", value);
-
-    return httpd_resp_empty(req, HTTPD_204);
+    return nvs_str_from_attr(req, "ssid", "wifi", "ssid");
 }
 
 static const
@@ -481,36 +704,16 @@ httpd_uri_t uri_post_wifi_ssid = {
 
 
 // ------------------------------------------------------------------------------
+
+// NOTE: Intentionally not exporting wifi password
+
+
+// ------------------------------------------------------------------------------
 static esp_err_t
 http_post_wifi_password(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/wifi/password");
-    char body[65], value[32];
-    if (!httpd_read_short_body(req, body, sizeof(body))) {
-        return ESP_OK;
-    }
-    ESP_LOGD(TAG, "Request body '%s'", body);
+    log_req(req);
     // D (108984) admin: Request body '{"password":"qwer"}'
-    if (!get_body_field(body, "password", value, sizeof(value))
-        || !decode_json_string(value)
-        ) {
-        return httpd_resp_empty(req, HTTPD_400);
-    }
-
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("wifi", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent WiFi config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_str(nvs, "password", value);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write WiFi password to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New WiFi password (len=%d)", strlen(value));
-
-    return httpd_resp_empty(req, HTTPD_204);
+    return nvs_str_from_attr(req, "password", "wifi", "password");
 }
 
 static const
@@ -522,34 +725,15 @@ httpd_uri_t uri_post_wifi_password = {
 
 
 // ------------------------------------------------------------------------------
+
+// NOTE: Intentionally not exporting private key
+
+
+// ------------------------------------------------------------------------------
 static esp_err_t
 http_post_ssl_pkey(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/ssl/pkey");
-    char *body = (char*)malloc(BUF_SIZE);
-    if (!httpd_read_short_body(req, body, BUF_SIZE)) {
-        free(body);
-        return ESP_OK;
-    }
-    if (!httpd_check_content_type(req, "application/pkcs8")) {
-        return httpd_resp_empty(req, HTTPD_415);
-    }
-
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_blob(nvs, "pkey", body, req->content_len);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write SSL pkey to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New SSL pkey (len=%d)", req->content_len);
-    //hexdump(body, req->content_len);
-    free(body);
-    return httpd_resp_empty(req, HTTPD_204);
+    log_req(req);
+    return nvs_blob_from_body(req, "application/pkcs8", "ssl", "pkey");
 }
 
 static const
@@ -559,36 +743,27 @@ httpd_uri_t uri_post_ssl_pkey = {
     .handler   = http_post_ssl_pkey,
 };
 
-//
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_get_ssl_cert(httpd_req_t *req) {
+    log_req(req);
+    return body_from_nvs_blob(req, "application/x-x509-user-cert", "ssl", "cert");
+}
+
+static const
+httpd_uri_t uri_get_ssl_cert = {
+    .uri       = "/rest/ssl/cert",
+    .method    = HTTP_GET,
+    .handler   = http_get_ssl_cert,
+};
+
+
 // ------------------------------------------------------------------------------
 static esp_err_t
 http_post_ssl_cert(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/ssl/cert");
-    char *body = (char*)malloc(BUF_SIZE);
-    if (!httpd_read_short_body(req, body, BUF_SIZE)) {
-        free(body);
-        return ESP_OK;
-    }
-    if (!httpd_check_content_type(req, "application/x-x509-user-cert")) {
-        return httpd_resp_empty(req, HTTPD_415);
-    }
-
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_blob(nvs, "cert", body, req->content_len);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write SSL cert to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New SSL cert (len=%d)", req->content_len);
-    //hexdump(body, req->content_len);
-    free(body);
-    return httpd_resp_empty(req, HTTPD_204);
+    log_req(req);
+    return nvs_blob_from_body(req, "application/x-x509-user-cert", "ssl", "cert");
 }
 
 static const
@@ -601,33 +776,24 @@ httpd_uri_t uri_post_ssl_cert = {
 
 // ------------------------------------------------------------------------------
 static esp_err_t
-http_post_ssl_cacert(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/ssl/cacert");
-    char *body = (char*)malloc(BUF_SIZE);
-    if (!httpd_read_short_body(req, body, BUF_SIZE)) {
-        free(body);
-        return ESP_OK;
-    }
-    if (!httpd_check_content_type(req, "application/x-x509-ca-cert")) {
-        return httpd_resp_empty(req, HTTPD_415);
-    }
+http_get_ssl_cacert(httpd_req_t *req) {
+    log_req(req);
+    return body_from_nvs_blob(req, "application/x-x509-ca-cert", "ssl", "cacert");
+}
 
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("ssl", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent SSL config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_blob(nvs, "cacert", body, req->content_len);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write SSL cacert to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New SSL cacert (len=%d)", req->content_len);
-    //hexdump(body, req->content_len);
-    free(body);
-    return httpd_resp_empty(req, HTTPD_204);
+static const
+httpd_uri_t uri_get_ssl_cacert = {
+    .uri       = "/rest/ssl/cacert",
+    .method    = HTTP_GET,
+    .handler   = http_get_ssl_cacert,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
+http_post_ssl_cacert(httpd_req_t *req) {
+    log_req(req);
+    return nvs_blob_from_body(req, "application/x-x509-ca-cert", "ssl", "cacert");
 }
 
 static const
@@ -640,35 +806,25 @@ httpd_uri_t uri_post_ssl_cacert = {
 
 // ------------------------------------------------------------------------------
 static esp_err_t
+http_get_ota_url(httpd_req_t *req) {
+    log_req(req);
+    return attr_from_nvs_str(req, "ota_url", "ota", "url");
+}
+
+static const
+httpd_uri_t uri_get_ota_url = {
+    .uri       = "/rest/ota/url",
+    .method    = HTTP_GET,
+    .handler   = http_get_ota_url,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
 http_post_ota_url(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/ota/url");
-    char body[128], value[128];
-    if (!httpd_read_short_body(req, body, sizeof(body))) {
-        return ESP_OK;
-    }
-    ESP_LOGD(TAG, "Request body '%s'", body);
+    log_req(req);
     // D (289555) admin: Request body '{"ota_url":"https://ota.wodeewa.com/out"}'
-    if (!get_body_field(body, "ota_url", value, sizeof(value))
-        || !decode_json_string(value)
-        ) {
-        return httpd_resp_empty(req, HTTPD_400);
-    }
-
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("ota", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent OTA config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_str(nvs, "url", value);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write OTA URL to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New OTA URL '%s'", value);
-
-    return httpd_resp_empty(req, HTTPD_204);
+    return nvs_str_from_attr(req, "ota_url", "ota", "url");
 }
 
 static const
@@ -681,33 +837,25 @@ httpd_uri_t uri_post_ota_url = {
 
 // ------------------------------------------------------------------------------
 static esp_err_t
+http_get_server_url(httpd_req_t *req) {
+    log_req(req);
+    return attr_from_nvs_str(req, "data_url", "server", "url");
+}
+
+static const
+httpd_uri_t uri_get_server_url = {
+    .uri       = "/rest/server/url",
+    .method    = HTTP_GET,
+    .handler   = http_get_server_url,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
 http_post_server_url(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/server/url");
-    char body[128], value[128];
-    if (!httpd_read_short_body(req, body, sizeof(body))) {
-        return ESP_OK;
-    }
-    ESP_LOGD(TAG, "Request body '%s'", body);
+    log_req(req);
     // D (369076) admin: Request body '{"data_url":"https://alpha.wodeewa.com/gps-reports"}'
-    if (!get_body_field(body, "data_url", value, sizeof(value))) {
-        return httpd_resp_empty(req, HTTPD_400);
-    }
-
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("server", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent server config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_str(nvs, "url", value);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write server URL to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New server URL '%s'", value);
-
-    return httpd_resp_empty(req, HTTPD_204);
+    return nvs_str_from_attr(req, "data_url", "server", "url");
 }
 
 static const
@@ -720,40 +868,25 @@ httpd_uri_t uri_post_server_url = {
 
 // ------------------------------------------------------------------------------
 static esp_err_t
+http_get_server_time_threshold(httpd_req_t *req) {
+    log_req(req);
+    return attr_from_nvs_u16(req, "time_threshold", "server", "time_trshld");
+}
+
+static const
+httpd_uri_t uri_get_server_time_threshold = {
+    .uri       = "/rest/server/time_threshold",
+    .method    = HTTP_GET,
+    .handler   = http_get_server_time_threshold,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
 http_post_server_time_threshold(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/server/time_threshold");
-    char body[65], value[32];
-    if (!httpd_read_short_body(req, body, sizeof(body))) {
-        return ESP_OK;
-    }
-    ESP_LOGD(TAG, "Request body '%s'", body);
+    log_req(req);
     // D (318487) admin: Request body '{"time_threshold":30}'
-    if (!get_body_field(body, "time_threshold", value, sizeof(value))) {
-        return httpd_resp_empty(req, HTTPD_400);
-    }
-
-    char *end = value;
-    long x = strtol(value, &end, 0);
-    if (*end || (x < 0) || (65535 < x)) {
-        ESP_LOGE(TAG, "Invalid server time threshold '%s'", value);
-        return httpd_resp_empty(req, HTTPD_400);
-    }
-
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("server", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent server config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_u16(nvs, "time_trshld", x);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write server time threshold to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New server time threshold %ld", x);
-
-    return httpd_resp_empty(req, HTTPD_204);
+    return nvs_u16_from_attr(req, "time_threshold", "server", "time_trshld");
 }
 
 static const
@@ -766,40 +899,25 @@ httpd_uri_t uri_post_server_time_threshold = {
 
 // ------------------------------------------------------------------------------
 static esp_err_t
+http_get_server_distance_threshold(httpd_req_t *req) {
+    log_req(req);
+    return attr_from_nvs_u16(req, "distance_threshold", "server", "dist_trshld");
+}
+
+static const
+httpd_uri_t uri_get_server_distance_threshold = {
+    .uri       = "/rest/server/distance_threshold",
+    .method    = HTTP_GET,
+    .handler   = http_get_server_distance_threshold,
+};
+
+
+// ------------------------------------------------------------------------------
+static esp_err_t
 http_post_server_distance_threshold(httpd_req_t *req) {
-    ESP_LOGI(TAG, "POST /rest/server/distance_threshold");
-    char body[65], value[32];
-    if (!httpd_read_short_body(req, body, sizeof(body))) {
-        return ESP_OK;
-    }
-    ESP_LOGD(TAG, "Request body '%s'", body);
+    log_req(req);
     // D (345347) admin: Request body '{"distance_threshold":100}'
-    if (!get_body_field(body, "distance_threshold", value, sizeof(value))) {
-        return httpd_resp_empty(req, HTTPD_400);
-    }
-
-    char *end = value;
-    long x = strtol(value, &end, 0);
-    if (*end || (x < 0) || (65535 < x)) {
-        ESP_LOGE(TAG, "Invalid server dist threshold '%s'", value);
-        return httpd_resp_empty(req, HTTPD_400);
-    }
-
-    nvs_handle nvs;
-    esp_err_t res = nvs_open("server", NVS_READWRITE, &nvs);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot find persistent server config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    res = nvs_set_u16(nvs, "dist_trshld", x);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Cannot write server distance threshold to persistent config: %d", res);
-        return httpd_resp_empty(req, HTTPD_500);
-    }
-    nvs_close(nvs);
-    ESP_LOGI(TAG, "New server distance threshold %ld", x);
-
-    return httpd_resp_empty(req, HTTPD_204);
+    return nvs_u16_from_attr(req, "distance_threshold", "server", "dist_trshld");
 }
 
 static const
@@ -832,6 +950,7 @@ event_handler(void *ctx, system_event_t *event) {
             if (http_server == NULL) {
                 ESP_LOGI(TAG, "Starting http server;");
                 httpd_config_t conf = HTTPD_DEFAULT_CONFIG();
+                conf.max_open_sockets = 15;
                 conf.max_uri_handlers = 24;
                 conf.max_resp_headers = 8;
                 esp_err_t res = httpd_start(&http_server, &conf);
@@ -841,16 +960,34 @@ event_handler(void *ctx, system_event_t *event) {
                 else {
                     httpd_register_uri_handler(http_server, &uri_get_app);
                     httpd_register_uri_handler(http_server, &uri_get_generate_204);
-                    httpd_register_uri_handler(http_server, &uri_post_reboot );
-                    httpd_register_uri_handler(http_server, &uri_get_wifi_ssids );
-                    httpd_register_uri_handler(http_server, &uri_post_wifi_ssid );
-                    httpd_register_uri_handler(http_server, &uri_post_wifi_password );
-                    httpd_register_uri_handler(http_server, &uri_post_ssl_pkey );
-                    httpd_register_uri_handler(http_server, &uri_post_ssl_cert );
-                    httpd_register_uri_handler(http_server, &uri_post_ssl_cacert );
-                    httpd_register_uri_handler(http_server, &uri_post_ota_url );
-                    httpd_register_uri_handler(http_server, &uri_post_server_url );
+                    httpd_register_uri_handler(http_server, &uri_post_reboot);
+                    httpd_register_uri_handler(http_server, &uri_get_wifi_ssids);
+
+                    httpd_register_uri_handler(http_server, &uri_get_wifi_ssid);
+                    httpd_register_uri_handler(http_server, &uri_post_wifi_ssid);
+
+                    // NOTE: Intentionally not exporting wifi password
+                    httpd_register_uri_handler(http_server, &uri_post_wifi_password);
+
+                    // NOTE: Intentionally not exporting private key
+                    httpd_register_uri_handler(http_server, &uri_post_ssl_pkey);
+
+                    httpd_register_uri_handler(http_server, &uri_get_ssl_cert);
+                    httpd_register_uri_handler(http_server, &uri_post_ssl_cert);
+                    
+                    httpd_register_uri_handler(http_server, &uri_get_ssl_cacert);
+                    httpd_register_uri_handler(http_server, &uri_post_ssl_cacert);
+
+                    httpd_register_uri_handler(http_server, &uri_get_ota_url);
+                    httpd_register_uri_handler(http_server, &uri_post_ota_url);
+
+                    httpd_register_uri_handler(http_server, &uri_get_server_url);
+                    httpd_register_uri_handler(http_server, &uri_post_server_url);
+                    
+                    httpd_register_uri_handler(http_server, &uri_get_server_time_threshold );
                     httpd_register_uri_handler(http_server, &uri_post_server_time_threshold );
+                    
+                    httpd_register_uri_handler(http_server, &uri_get_server_distance_threshold );
                     httpd_register_uri_handler(http_server, &uri_post_server_distance_threshold );
                     ESP_LOGI(TAG, "Started http server;");
                 }
