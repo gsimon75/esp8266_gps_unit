@@ -155,13 +155,17 @@
 </template>
 
 <script>
-
 import { mdiUpload, mdiReload, mdiScooterElectric } from "@mdi/js";
+
+const axios = require("axios");
+const http = require("http");
+const httpAgent = new http.Agent({ keepAlive: true });
 
 export default {
     name: "app",
     data: () => ({
         mdiUpload, mdiReload, mdiScooterElectric,
+        ax: null,
         tab: null,
         show_error: false,
         error_message: null,
@@ -196,7 +200,7 @@ export default {
             this.show_notification = true;
         },
         reboot: function() {
-            this.$http.post("/rest/reboot", {ssid: this.wifi.ssid}).then(() => {
+            this.ax.post("/rest/reboot", {ssid: this.wifi.ssid}).then(() => {
                 this.notification("Reboot initiated");
             }).catch(err => {
                 this.error("Reboot failed: " + err);
@@ -204,7 +208,7 @@ export default {
         },
         rescan_ssids: function() {
             this.wifi.scanned_ssids = [];
-            this.$http.get("/rest/wifi/ssids").then(resp => {
+            this.ax.get("/rest/wifi/ssids").then(resp => {
                 if (!resp || !resp.data) {
                     this.error("SSID list is empty");
                     return;
@@ -218,63 +222,63 @@ export default {
             });
         },
         update_ssid: function() {
-            this.$http.post("/rest/wifi/ssid", {ssid: this.wifi.ssid}).then(() => {
+            this.ax.post("/rest/wifi/ssid", {ssid: this.wifi.ssid}).then(() => {
                 this.notification("SSID updated");
             }).catch(err => {
                 this.error("SSID update failed: " + err);
             });
         },
         update_password: function() {
-            this.$http.post("/rest/wifi/password", {password: this.wifi.password}).then(() => {
+            this.ax.post("/rest/wifi/password", {password: this.wifi.password}).then(() => {
                 this.notification("Password updated");
             }).catch(err => {
                 this.error("Password update failed: " + err);
             });
         },
         upload_pkey: function() {
-            this.$http.post("/rest/ssl/pkey", this.ssl.pkey, { headers: {"Content-Type": "application/pkcs8"} } ).then(() => {
+            this.ax.post("/rest/ssl/pkey", this.ssl.pkey, { headers: {"Content-Type": "application/pkcs8"} } ).then(() => {
                 this.notification("SSL pkey updated");
             }).catch(err => {
                 this.error("SSL pkey update failed: " + err);
             });
         },
         upload_cert: function() {
-            this.$http.post("/rest/ssl/cert", this.ssl.cert, { headers: {"Content-Type": "application/x-x509-user-cert"} } ).then(() => {
+            this.ax.post("/rest/ssl/cert", this.ssl.cert, { headers: {"Content-Type": "application/x-x509-user-cert"} } ).then(() => {
                 this.notification("SSL cert updated");
             }).catch(err => {
                 this.error("SSL cert update failed: " + err);
             });
         },
         upload_cacert: function() {
-            this.$http.post("/rest/ssl/cacert", this.ssl.cacert, { headers: {"Content-Type": "application/x-x509-ca-cert"} } ).then(() => {
+            this.ax.post("/rest/ssl/cacert", this.ssl.cacert, { headers: {"Content-Type": "application/x-x509-ca-cert"} } ).then(() => {
                 this.notification("SSL CA cert updated");
             }).catch(err => {
                 this.error("SSL CA cert update failed: " + err);
             });
         },
         update_ota_url: function() {
-            this.$http.post("/rest/ota/url", {ota_url: this.ota.url}).then(() => {
+            this.ax.post("/rest/ota/url", {ota_url: this.ota.url}).then(() => {
                 this.notification("OTA URL updated");
             }).catch(err => {
                 this.error("OTA URL update failed: " + err);
             });
         },
         update_data_url: function() {
-            this.$http.post("/rest/server/url", {data_url: this.server.url}).then(() => {
+            this.ax.post("/rest/server/url", {data_url: this.server.url}).then(() => {
                 this.notification("DataServer URL updated");
             }).catch(err => {
                 this.error("DataServer URL update failed: " + err);
             });
         },
         update_data_time_threshold: function() {
-            this.$http.post("/rest/server/time_threshold", {data_time_threshold: this.server.time_threshold}).then(() => {
+            this.ax.post("/rest/server/time_threshold", {data_time_threshold: this.server.time_threshold}).then(() => {
                 this.notification("DataServer time threshold updated");
             }).catch(err => {
                 this.error("DataServer time threshold update failed: " + err);
             });
         },
         update_data_distance_threshold: function() {
-            this.$http.post("/rest/server/distance_threshold", {data_distance_threshold: this.server.distance_threshold}).then(() => {
+            this.ax.post("/rest/server/distance_threshold", {data_distance_threshold: this.server.distance_threshold}).then(() => {
                 this.notification("DataServer distance threshold updated");
             }).catch(err => {
                 this.error("DataServer distance threshold update failed: " + err);
@@ -282,29 +286,31 @@ export default {
         },
     },
     created: function () {
-        this.$http.get("/rest/wifi/ssid").then((resp, err) => {
-            if (resp && resp.ssid) {
-                this.wifi.ssid = resp.ssid;
+        this.ax = axios.create({ httpAgent });
+
+        this.ax.get("/rest/wifi/ssid").then((resp, err) => {
+            if (resp && (resp.status == 200) && resp.data.ssid) {
+                this.wifi.ssid = resp.data.ssid;
             }
         });
-        this.$http.get("/rest/ota/url").then((resp, err) => {
-            if (resp && resp.ota_url) {
-                this.ota.url = resp.ota_url;
+        this.ax.get("/rest/ota/url").then((resp, err) => {
+            if (resp && (resp.status == 200) && resp.data.ota_url) {
+                this.ota.url = resp.data.ota_url;
             }
         });
-        this.$http.get("/rest/server/url").then((resp, err) => {
-            if (resp && resp.data_url) {
-                this.server.url = resp.data_url;
+        this.ax.get("/rest/server/url").then((resp, err) => {
+            if (resp && (resp.status == 200) && resp.data.data_url) {
+                this.server.url = resp.data.data_url;
             }
         });
-        this.$http.get("/rest/server/time_threshold").then((resp, err) => {
-            if (resp && resp.time_trshld) {
-                this.server.time_threshold = resp.time_trshld;
+        this.ax.get("/rest/server/time_threshold").then((resp, err) => {
+            if (resp && (resp.status == 200) && resp.data.time_trshld) {
+                this.server.time_threshold = resp.data.time_trshld;
             }
         });
-        this.$http.get("/rest/server/distance_threshold").then((resp, err) => {
-            if (resp && resp.dist_trshld) {
-                this.server.distance_threshold = resp.dist_trshld;
+        this.ax.get("/rest/server/distance_threshold").then((resp, err) => {
+            if (resp && (resp.status == 200) && resp.data.dist_trshld) {
+                this.server.distance_threshold = resp.data.dist_trshld;
             }
         });
     },
