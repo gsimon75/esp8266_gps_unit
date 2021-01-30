@@ -20,8 +20,7 @@
                 <v-btn fab color="primary" @click="enable_auto_center"><v-icon>fas fa-crosshairs</v-icon></v-btn>
             </l-control>
             <l-tile-layer :url="tile_url" :attribution="tile_attribution"/>
-            <l-geo-json :geojson="shops" :optionsStyle="style_extractor"/>
-            <l-marker ref="current_pos" :icon="($store.getters.scooters_in_use.length > 0) ? icon_biking : null" :lat-lng="$store.state.current_location"/>
+            <l-marker ref="current_pos" :icon="icon_biking" :lat-lng="$store.state.current_location"/>
 
             <template v-for="st in stations">
                 <l-marker :lat-lng="st.loc" :key="st.id">
@@ -46,7 +45,7 @@
 <script>
 // @ is an alias to /src
 import L from "leaflet";
-import { LMap, LControl, LControlScale, LTileLayer, LGeoJson, LMarker, LIcon } from "vue2-leaflet";
+import { LMap, LControl, LControlScale, LTileLayer, LMarker, LIcon } from "vue2-leaflet";
 
 /* NOTE: when navigating away from this view, exceptions will be thrown:
    leaflet-src.js:2449 Uncaught TypeError: Cannot read property '_leaflet_pos' of undefined
@@ -78,7 +77,7 @@ const icon_biking = L.icon({
     iconAnchor: [ 26, 41 ],
 });
 
-import { norm2latlng, nearest_station, shops, stations } from "../modules/geoshapes";
+import { norm2latlng, nearest_station, stations } from "../modules/geoshapes";
 
 export default {
     name: "SiteMap",
@@ -87,7 +86,6 @@ export default {
         LControl,
         LControlScale,
         LTileLayer,
-        LGeoJson,
         LMarker,
         LIcon,
     },
@@ -105,7 +103,6 @@ export default {
             auto_center: true,
             centering_in_progress: true,
             center_timer: null,
-            shops,
             stations,
         };
     },

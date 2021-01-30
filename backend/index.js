@@ -41,11 +41,15 @@ const bodyParser = require("body-parser");
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: false}));
 
-// Do the CORS rain dance
+app.disable("etag"); // Don't want "304 Not Modified" responses when the underlying data has actually changed
+
 app.use((req, res, next) => {
+    // Do the CORS rain dance
     res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     res.header("Access-Control-Allow-Credentials", true);
+    // Don't want "304 Not Modified" responses when the underlying data has actually changed
+    res.header("Last-Modified", (new Date()).toUTCString());
     next();
 });
 

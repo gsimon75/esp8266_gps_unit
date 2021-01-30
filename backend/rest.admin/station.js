@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../database");
-const logger = require("../logger").getLogger("unit");
+const logger = require("../logger").getLogger("station");
 const utils = require("../utils");
 
 
@@ -74,43 +74,22 @@ function filtered_pipeline(req) {
 }
 
 
-function op_get_status(req) {
-    logger.debug("op_get_status()");
-    if (!req.session || !req.session.is_technician) {
-        throw utils.error(401, "must be technician");
+function op_get_station(req) {
+    logger.debug("op_get_station()");
+    const id = req.params.id;
+
+    const pipe = [
+    ];
+
+    if (id) {
+        pipe.push({ $match: {id: id,} });
     }
-    const pipe = filtered_pipeline(req);
-    return db.cursor_all(db.units().aggregate(pipe));
+    return db.cursor_all(db.stations().aggregate(pipe));
 }
 
 
-function op_get_trace(req) {
-    logger.debug("op_get_trace()");
-    if (!req.session || !req.session.is_technician) {
-        throw utils.error(401, "must be technician");
-    }
-    const pipe = filtered_pipeline(req);
-    return db.cursor_all(db.traces().aggregate(pipe));
-}
-
-
-/*
- * 1. What units do we have/had? -> List of units: id, name, status, user
- * Narrowing: 
- * - by date (until (def: now), days, hours, minutes, seconds (def: last one only)
- * - by status (offline, charging, available, in_use)
- * Endpoint: GET /unit/status?until=1611775014&hours=3&status=available
- * Endpoint: GET /unit/status/Unit%201
- *
- * 2. Where is/was a unit? -> List of unit positions (location, charge)
- * - by date (until (def: now), days, hours, minutes, seconds (def: last one only)
- * Endpoint: GET /unit/trace/Unit%201?until=1611775014&hours=3
- */
-
-router.get("/status",           (req, res, next) => utils.mwrap(req, res, next, () => op_get_status(req)));
-router.get("/status/:name",     (req, res, next) => utils.mwrap(req, res, next, () => op_get_status(req)));
-router.get("/trace",            (req, res, next) => utils.mwrap(req, res, next, () => op_get_trace(req)));
-router.get("/trace/:name",      (req, res, next) => utils.mwrap(req, res, next, () => op_get_trace(req)));
+router.get("/",                 (req, res, next) => utils.mwrap(req, res, next, () => op_get_station(req)));
+router.get("/:id",              (req, res, next) => utils.mwrap(req, res, next, () => op_get_station(req)));
 
 module.exports = router;
 

@@ -22,6 +22,7 @@
     "@capacitor/core": "^2.4.1",
     "adler-32": "^1.2.0",
     "apexcharts": "^3.21.0",
+    "axios": "^0.21.1",
     "capacitor-firebase-auth": "^2.3.2",
     "core-js": "^3.6.5",
     "firebase": "^7.18.0",

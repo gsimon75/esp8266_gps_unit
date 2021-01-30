@@ -29,9 +29,9 @@ class MyHandler(xml.sax.ContentHandler):
     def startElement(self, name, attrs):
         if name == "node":
             self.poi = {
-                "id": attrs["id"],
-                "lat": attrs["lat"],
-                "lon": attrs["lon"],
+                "id": int(attrs["id"]),
+                "lat": float(attrs["lat"]),
+                "lon": float(attrs["lon"]),
             }
         elif name == "tag":
             self.poi[attrs["k"]] = attrs["v"]

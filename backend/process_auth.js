@@ -7,13 +7,13 @@ const utils = require("./utils");
  * https://firebase.google.com/docs/auth/admin/verify-id-tokens
  */
 const fba = require("firebase-admin");
-const serviceAccount = require("./fitnesstest-2d3ba-firebase-adminsdk-95sfb-e80f43f52a.json");
+const serviceAccount = require("./scooterfleet-firebase-adminsdk-9sbip-0ef9e8fa28.json");
 fba.initializeApp({
   credential: fba.credential.cert(serviceAccount),
-  databaseURL: "https://fitnesstest-2d3ba.firebaseio.com"
+  databaseURL: "https://scooterfleet.firebaseio.com"
 });
 
-const anonymous = { id: -1, is_trainer: false, is_admin: false };
+const anonymous = { id: -1, is_admin: false };
 
 function check_user(query_promise) {
     return query_promise.catch(err => {
@@ -39,21 +39,31 @@ function check_user(query_promise) {
 }
 
 function process_auth(req) {
+    // For development ONLY
+    const x_real_ip = req.get("X-Real-IP");
+    if (x_real_ip && (x_real_ip == "127.0.0.1")) {
+        req.session.email = req.get("X-Test-Email") || "gabor.simon75@gmail.com";
+        req.session.name = req.get("X-Test-Name") || "Test User";
+        req.session.is_admin = JSON.parse(req.get("X-Test-Is-Admin") || "true");
+        req.session.is_technician = JSON.parse(req.get("X-Test-Is-Technician") || "true");
+        req.session.provider = "test";
+        req.session.cookie.expires = null;
+        return Promise.resolve();
+    }
+
     const bearer_token = req.get("Authorization");
 
     if (!bearer_token) {
-        if (!req.session.uid) {
-            req.session.uid = -1;
-            req.session.is_trainer = false;
+        if (!req.session.email) {
+            req.session.email = null;
             req.session.is_admin = false;
-        }
-        if (!req.session.euid) {
-            req.session.euid = req.session.uid;
+            req.session.is_technician = false;
         }
         return Promise.resolve();
     }
     
     if (!bearer_token.startsWith("Bearer ")) {
+        logger.error("Invalid bearer token '" + bearer_token + "'");
         return Promise.reject(utils.error(400, "ID token must start with 'Bearer '"));
     }
     
@@ -63,32 +73,23 @@ function process_auth(req) {
         // https://firebase.google.com/docs/reference/admin/node/admin.auth.DecodedIdToken
         //logger.debug("decodedToken=" + JSON.stringify(decodedToken));
         // decodedToken={"name":"Gabor Simon","picture":"https://lh4.googleusercontent.com/.../photo.jpg","iss":"https://securetoken.google.com/fitnesstest-2d3ba","aud":"fitnesstest-2d3ba","auth_time":1603797293,"user_id":"uk...X2","sub":"uk...X2","iat":1603885448,"exp":1603889048,"email":"gabor.simon@saga4.com","email_verified":true,"firebase":{"identities":{"google.com":["10...7"],"email":["gabor.simon@saga4.com"]},"sign_in_provider":"google.com"},"uid":"uk...X2"}
-        req.session.ext_uid = decodedToken.uid;
-        req.session.ext_provider = decodedToken.firebase.sign_in_provider;
-        req.session.ext_email = decodedToken.email;
-        req.session.ext_name = decodedToken.name;
-        req.session.cookie.expires = new Date((decodedToken.exp - 5) * 1000); // let the cookie expire 5 seconds earlier than the token
-        return check_user(db.query("SELECT id, status, is_trainer, is_admin FROM Client_t WHERE ext_uid=?", [ decodedToken.uid ]));
-    }).then(user => {
-        req.session.uid = 0 | user.id;
-        req.session.is_trainer = !!user.is_trainer;
-        req.session.is_admin = !!user.is_admin;
-        const sudo_target = 0 | req.get("X-Sudo");
-        if (!sudo_target) {
-            req.session.euid = req.session.uid;
-            return Promise.resolve();
-        }
-        else if (!user.is_trainer && !user.is_admin) {
-            throw utils.error(403, "May not access the resource of someone else");
-        }
-        else {
-            return check_user(db.query("SELECT id, status, is_trainer, is_admin FROM Client_t WHERE id=?", [ sudo_target ])).then(target_user => {
-                if (target_user.is_trainer || target_user.is_admin) {
-                    throw utils.error(403, "May not access the resource of someone else");
-                }
-                req.session.euid = sudo_target;
-            });
-        }
+        return db.users().findOne({email: decodedToken.email}).then(result => {
+            req.session.is_admin = false;
+            req.session.is_technician = false;
+            req.session.provider = decodedToken.firebase.sign_in_provider;
+            req.session.email = decodedToken.email;
+            req.session.name = decodedToken.name;
+            req.session.cookie.expires = new Date((decodedToken.exp - 5) * 1000); // let the cookie expire 5 seconds earlier than the token
+            if (result) {
+                // known user, retrieve his admin/technician status
+                req.session.is_admin = result.is_admin;
+                req.session.is_technician = result.is_technician;
+            }
+            else {
+                // new user, auto-subcribe as plain user
+                return db.users.insert({email: decodedToken.email, is_admin: false, is_technician: false })
+            }
+        });
     });
 }
 
