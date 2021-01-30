@@ -17,9 +17,17 @@ db.traces.createIndex( { time: -1, unit: 1 } )
 
 
 db.createCollection("sessions")
+
+db.createCollection("stations")
+mongoimport -c stations --jsonArray mongodb://backend:zeihiwoofeim@localhost:27017/gps_tracker ../../misc/get_osm_poi/dubai_cafe.json
 ```
 
 ## Commands
+
+Connect to the db:
+`mongo mongodb://backend:zeihiwoofeim@localhost:27017/gps_tracker`
+
+(The rest goes within a mongo shell)
 
 Insert data:
 `db.traces.insert( { unit: "test-1", time: 0|(ISODate("2020-12-20T15:29:52.904Z") / 1000), lat: 25.04, lon: 55.25, alt: 30.11, battery: 100.0 })`
