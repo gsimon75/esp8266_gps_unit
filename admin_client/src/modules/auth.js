@@ -10,6 +10,7 @@ const web_app_config = {
     messagingSenderId: "355671533390",
     appId: "1:355671533390:web:dcfc7550ed03c6cc4ba01f"
 };
+const fcm_public_key = "BDqga4b_taIPZB7XpFUw2CjbDRP8tZu1lKjNUOQS1JyJRpA_5GN35aa-EbaSznWmaaa5a8gcGKgg36rMtLA_F5o";
 
 function user_has_logged_in(context) {
     console.log("user_has_logged_in()");
@@ -84,13 +85,10 @@ export default {
                 console.log("webPlugin=" + webPlugin);
                 context.commit("set_auth_plugin", webPlugin);
 
-                const fbauth = require("firebase/auth");
-                console.log("fbauth=" + fbauth);
-                const firebase_app = webPlugin.initializeApp(web_app_config);
-                console.log("Checkpoint #1; firebase_app=" + firebase_app);
-                //const aaaa = webPlugin.auth();
-                const aaaa = firebase_app.auth();
-                console.log("Checkpoint #2; aaaa=" + aaaa);
+                webPlugin.initializeApp(web_app_config);
+
+                require("firebase/messaging");
+                require("firebase/auth");
                 webPlugin.auth().useDeviceLanguage(); // or: webPlugin.auth().languageCode = "pt";
                 if (typeof cordova === "undefined") {
                     // platform: web
@@ -133,6 +131,36 @@ export default {
             context.rootState.ax.defaults.headers.common['Authorization'] = "Bearer " + id_token;
             context.rootState.ax.get("v0/whoami").then(result => {
                 console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
+
+
+                // ==============================================================================
+                const messaging = context.rootState.auth_plugin.messaging();
+
+                messaging.getToken({ vapidKey: fcm_public_key }).then((currentToken) => {
+                    if (currentToken) {
+                        // Send the token to your server and update the UI if necessary
+                        console.log("Got registration token: " + JSON.stringify(currentToken));
+                        context.rootState.ax.post("v0/subscribe", { fcm_reg_token: currentToken} ).then(result => {
+                            console.log("FCM subscription done: " + result.status);
+                        });
+                    }
+                    else {
+                        // Show permission request UI
+                        console.log("No registration token available. Request permission to generate one.");
+                    }
+                }).catch((err) => {
+                    console.log("An error occurred while retrieving token. ", err);
+                });
+
+                messaging.onMessage(payload => {
+                    console.log("Message received in fg: " + JSON.stringify(payload));
+                });
+
+                // ==============================================================================
+
+
+
+
                 EventBus.$emit("signed-in", { yadda: 42 });
             }).catch(err => {
                 console.log("Failed to sign in to backend: " + err);

@@ -4,6 +4,13 @@ const db = require("../database");
 const logger = require("../logger").getLogger("admin");
 const utils = require("../utils");
 
+const fba = require("firebase-admin");
+
+const fcm_server_key = "AAAAUs-s504:APA91bGVx_Pt069CtyDVGeATpLXU8XUhuAjHBBGzfVrlXPZAOyuWSNoRYKvrTNW9TafH-k9YYmpVZjVFecUyqqN8RNxqfZAEX8hi2besxaVa8YA104q-WVrTIMfKaq7lEEv6XhCIly34";
+const fcm_sender_id = 355671533390;
+const fcm_public_key = "BDqga4b_taIPZB7XpFUw2CjbDRP8tZu1lKjNUOQS1JyJRpA_5GN35aa-EbaSznWmaaa5a8gcGKgg36rMtLA_F5o";
+const fcm_private_key = "W4y43tBa-0i1bFVLEkwKLNRY9O3Ro3-22gN--0e4VF0";
+
 
 function op_healthz(req) {
     logger.debug("GET healthz");
@@ -32,12 +39,28 @@ function op_logout(req) {
 }
 
 
+function op_subscribe(req) {
+    logger.debug("POST subscribe");
+    const currentToken = req.body.fcm_reg_token;
+    logger.debug("currentToken=" + currentToken);
+    fba.messaging().subscribeToTopic([ currentToken ], "admin_t").then(response => {
+        // See the MessagingTopicManagementResponse reference documentation for the contents of response.
+        logger.debug("Successfully subscribed to topic: " + JSON.stringify(response));
+    }).catch(error => {
+        logger.error("Error subscribing to topic: " + error);
+    });
+    return "ok";
+}
+
+
+
 // health check for load balancers
 router.get("/healthz",          (req, res, next) => utils.mwrap(req, res, next, () => op_healthz(req)));
 
 // client session handling (mostly for testing)
 router.get("/whoami",           (req, res, next) => utils.mwrap(req, res, next, () => op_whoami(req)));
 router.get("/logout",           (req, res, next) => utils.mwrap(req, res, next, () => op_logout(req)));
+router.post("/subscribe",       (req, res, next) => utils.mwrap(req, res, next, () => op_subscribe(req)));
 
 // administration of units
 router.use("/unit", require("./unit"));

@@ -13,30 +13,7 @@ fba.initializeApp({
   databaseURL: "https://scooterfleet.firebaseio.com"
 });
 
-const anonymous = { id: -1, is_admin: false };
-
-function check_user(query_promise) {
-    return query_promise.catch(err => {
-        logger.error("Saga4 auth failed: " + err);
-        throw utils.error(500, err);
-    }).then(results => {
-        if (results.length == 0) {
-            //throw utils.error(403, "Not a registered user");
-            return anonymous;
-        }
-        if (results[0].status == 3) { // deleted account
-            //throw utils.error(403, "Not a registered user");
-            return anonymous;
-        }
-        if (results[0].status == 2) { // blocked account
-            throw utils.error(403, "User is blocked");
-        }
-        if (results[0].status == 1) { // suspended account
-            throw utils.error(403, "Account is suspended");
-        }
-        return results[0];
-    });
-}
+const anonymous = { id: -1, is_admin: false, is_technician: false };
 
 function process_auth(req) {
     // For development ONLY

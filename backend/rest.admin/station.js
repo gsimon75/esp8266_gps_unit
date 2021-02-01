@@ -77,7 +77,6 @@ function filtered_pipeline(req) {
 function op_get_station(req) {
     logger.debug("op_get_station()");
     const id = req.params.id;
-
     const pipe = [
     ];
 
