@@ -26,6 +26,7 @@ Vue.use(VueRouter);
 import "./assets/Roboto.css";
 import "./assets/fontawesome5.all.css";
 import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 import App from "./App.vue";
 
@@ -33,19 +34,13 @@ import ExitGuard from "./views/ExitGuard.vue";
 import NotFound from "./views/NotFound.vue";
 import SignIn from "./views/SignIn.vue";
 import Home from "./views/Home.vue";
-import TakeScooter from "./views/TakeScooter.vue";
-import ReturnScooter from "./views/ReturnScooter.vue";
 import SiteMap from "./views/SiteMap.vue";
 import Account from "./views/Account.vue";
 
-import { latLng } from "leaflet";
-
 import { Plugins } from "@capacitor/core";
-const { SplashScreen } = Plugins;
+const { SplashScreen, Geolocation } = Plugins;
 
 import auth from "./modules/auth";
-
-import { nearest_station, stations } from "./modules/geoshapes";
 
 const vuexLocalStorage = new VuexPersist({
     key: "vuex",
@@ -53,34 +48,31 @@ const vuexLocalStorage = new VuexPersist({
     modules: ["auth"],
 });
        
-const station_proximity_range = 10; // meters
-
 const axios = require("axios");
 const http = require("http");
 const httpAgent = new http.Agent({ keepAlive: true });
 
+const ax = axios.create({ httpAgent, withCredentials: true });
+
+ax.interceptors.response.use(function (response) {
+    return response;
+}, function (error) {
+    console.log("axios intercepted response: " + JSON.stringify(error));
+    return Promise.reject(error);
+});
+
 const store = new Vuex.Store({
     state: {
-        ax: axios.create({ httpAgent, withCredentials: true }),
+        ax,
         is_started: false,
         app_bar_info: "...",
         auth_plugin: null,
         db: null,
-        current_location: latLng(0, 0),
-        fake_scooter_id_generator: 0,
-        scooters_in_use: [],
-        near_station: null,
     },
     getters: {
         app_type(state, getters, rootState) { // eslint-disable-line no-unused-vars
             return (typeof cordova === "undefined") ? "web" : "mobile";
         },
-        scooter_id(state, getters, rootState) { // eslint-disable-line no-unused-vars
-            return state.fake_scooter_id_generator;
-        },
-        scooters_in_use(state, getters, rootState) { // eslint-disable-line no-unused-vars
-            return state.scooters_in_use;
-        }
     },
     mutations: {
         mark_started(state, x) {
@@ -91,49 +83,6 @@ const store = new Vuex.Store({
         },
         set_db(state, x) {
             state.db = x;
-        },
-        next_scooter_id(state) {
-            state.fake_scooter_id_generator += 1 + Math.floor(Math.random() * 8);
-        },
-        take_scooter(state, id) {
-            state.scooters_in_use.push(id);
-            if (state.near_station && (state.near_station.ready > 0)) {
-                state.near_station.ready--;
-                state.near_station.free++;
-            }
-        },
-        return_scooter(state, id) {
-            const idx = state.scooters_in_use.indexOf(id);
-            if (idx >= 0) {
-                state.scooters_in_use.splice(idx, 1);
-                if (state.near_station && (state.near_station.free > 0)) {
-                    state.near_station.free--;
-                    state.near_station.ready++;
-                }
-            }
-        },
-        set_location(state, loc) {
-            state.current_location = loc;
-            if (state.near_station) {
-                const dist = loc.distanceTo(state.near_station.loc);
-                if (dist > station_proximity_range) {
-                    console.log("Leaving station");
-                    state.near_station = null;
-                }
-            }
-            else {
-                const best_station = nearest_station(stations);
-                if ((best_station !== undefined) && (best_station.d <= station_proximity_range)) {
-                    const st = stations.find(st => st.id == best_station.id);
-                    if (st !== undefined) {
-                        state.near_station = st;
-                        console.log("Entering station " + st.id);
-                    }
-                    else {
-                        state.near_station = null;
-                    }
-                }
-            }
         },
     },
     actions: {
@@ -209,16 +158,6 @@ const router = new VueRouter({
             component: Home
         },
         {
-            path: "/take_scooter",
-            name: "Take Scooter",
-            component: TakeScooter
-        },
-        {
-            path: "/return_scooter",
-            name: "Return Scooter",
-            component: ReturnScooter
-        },
-        {
             path: "/site_map",
             name: "Site Map",
             component: SiteMap
@@ -243,16 +182,30 @@ const waitForStorageToBeReady = async (to, from, next) => {
 }
 router.beforeEach(waitForStorageToBeReady);
 
-// let the geo-dependent stuff know about the router and the store
-import { register_context as register_geo } from "./modules/geoshapes";
-register_geo(router, store);
-
 // main initialization starts here
 store.dispatch("init_auth_plugin").catch(error => {
     console.log("Could not sign in with persisted data: " + error.message);
     store.commit("logged_out");
 }).then(() => {
     if (typeof cordova !== "undefined") {
+        // current location handler
+        // https://capacitorjs.com/docs/apis/geolocation#geolocationposition
+        const watch_location = function (loc, err) {
+            if (err) {
+                console.log("watch_location err=" + err);
+            }
+            else {
+                console.log("loc.timestamp=" + loc.timestamp);
+                console.log("loc.latitude=" + loc.latitude);
+                console.log("loc.longitude=" + loc.longitude);
+            }
+        }
+
+        var location_watcher = Geolocation.watchPosition({ enableHighAccuracy: true, },watch_location);
+        console.log("location_watcher=" + location_watcher);
+        // Geolocation.clearWatch({id: location_watcher});
+
+
         //store.dispatch("open_db"); // FIXME: not in this mock
             /*
             console.log("registering onTokenRefresh handler");

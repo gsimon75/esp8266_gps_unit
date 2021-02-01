@@ -10,16 +10,6 @@
 
         <v-navigation-drawer v-model="drawer" app clipped>
              <v-list dense nav>
-                <v-list-item to="/take_scooter">
-                    <v-list-item-icon><v-icon>fas fa-biking</v-icon></v-list-item-icon>
-                    <v-list-item-content>Take scooter</v-list-item-content>
-                </v-list-item>
-
-                <v-list-item to="/return_scooter">
-                    <v-list-item-icon><v-icon>fas fa-bicycle</v-icon></v-list-item-icon>
-                    <v-list-item-content>Return scooter</v-list-item-content>
-                </v-list-item>
-
                 <v-list-item to="/site_map">
                     <v-list-item-icon><v-icon>fas fa-map-marked-alt</v-icon></v-list-item-icon>
                     <v-list-item-content>Site Map</v-list-item-content>
@@ -43,8 +33,6 @@
         </v-main>
 
          <v-bottom-navigation color="primary" dark>
-            <v-btn to="/take_scooter" text :disabled="!$store.state.near_station || ($store.state.near_station.ready <= 0)"><v-icon>fas fa-biking</v-icon></v-btn>
-            <v-btn to="/return_scooter" text :disabled="!$store.state.near_station || ($store.state.near_station.free <= 0) || ($store.getters.scooters_in_use.length == 0)"><v-icon>fas fa-bicycle</v-icon></v-btn>
             <v-btn to="/" text :disabled="true"><v-icon>fas fa-home</v-icon></v-btn>
             <v-btn to="/site_map" text><v-icon>fas fa-map-marked-alt</v-icon></v-btn>
          </v-bottom-navigation>
