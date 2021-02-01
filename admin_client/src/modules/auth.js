@@ -21,6 +21,7 @@ function user_has_logged_in(context) {
             provider_id: user.providerId,
             uid: user.uid,
         });
+        context.dispatch("sign_in_to_backend", idToken);
     });
 }
 
@@ -104,6 +105,11 @@ export default {
                 }
             });
         },
+        sign_out_from_backend(context) {
+            context.rootState.ax.get("v0/logout").then(() => {
+                console.log("Signed out from backend");
+            });
+        },
         sign_out(context) {
             if (typeof cordova !== "undefined") {
                 // platform: mobile
@@ -113,6 +119,15 @@ export default {
                 // platform: web
                 return context.rootState.auth_plugin.auth().signOut();
             }
+        },
+        sign_in_to_backend(context, id_token) {
+            console.log("Signing in to backend");
+            context.rootState.ax.defaults.headers.common['Authorization'] = "Bearer " + id_token;
+            context.rootState.ax.get("v0/whoami").then(result => {
+                console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
+            }).catch(err => {
+                console.log("Failed to sign in to backend: " + err);
+            });
         },
         sign_in_with_google(context) {
             if (typeof cordova !== "undefined") {
@@ -130,6 +145,7 @@ export default {
                                     provider_id: user.providerId,
                                     uid: user.uid,
                                 });
+                                context.dispatch("sign_in_to_backend", idToken);
                                 resolve();
                             });
                         });

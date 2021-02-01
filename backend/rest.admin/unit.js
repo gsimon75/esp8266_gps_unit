@@ -80,7 +80,6 @@ function op_get_status(req) {
         throw utils.error(401, "must be technician");
     }
     const pipe = filtered_pipeline(req);
-    logger.debug("pipe=" + JSON.stringify(pipe));
     return db.cursor_all(db.units().aggregate(pipe));
 }
 

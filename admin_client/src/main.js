@@ -55,8 +55,13 @@ const vuexLocalStorage = new VuexPersist({
        
 const station_proximity_range = 10; // meters
 
+const axios = require("axios");
+const http = require("http");
+const httpAgent = new http.Agent({ keepAlive: true });
+
 const store = new Vuex.Store({
     state: {
+        ax: axios.create({ httpAgent, withCredentials: true }),
         is_started: false,
         app_bar_info: "...",
         auth_plugin: null,

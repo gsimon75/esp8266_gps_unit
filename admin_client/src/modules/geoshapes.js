@@ -6,6 +6,18 @@ function register_context(r, s) {
     router = r;
     store = s;
     console.log("geo registered vue context");
+
+    store.state.ax.get("/v0/station").then(sts => {
+        for (var st of sts) {
+            // {"_id":"6016822fcbe5bf1db53ae6c2","id":3825891566,"lat":25.1850197,"lon":55.2652917,"name":"The Health Spot Cafe","capacity":14,"in_use":0}
+            delete st._id;
+            st.free = st.capacity - st.in_use;
+            st.ready = st.in_use;
+            st.charging = 0; // TODO: distinguish charging vs. ready
+            st.loc = latLng(st.lat, st.lon);
+            stations.push(st);
+        }
+    })
 }
 
 var base_A = [ 0.003042,  0.002915 ];
@@ -44,6 +56,7 @@ const stations = [
         free: 6,
     },
 ];
+
 
 function nearest_station(eligible_stations) {
     if (eligible_stations.length == 0) {

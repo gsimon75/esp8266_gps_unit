@@ -20,7 +20,7 @@
                 <v-btn fab color="primary" @click="enable_auto_center"><v-icon>fas fa-crosshairs</v-icon></v-btn>
             </l-control>
             <l-tile-layer :url="tile_url" :attribution="tile_attribution"/>
-            <l-marker ref="current_pos" :icon="($store.getters.scooters_in_use.length > 0) ? icon_biking : null" :lat-lng="$store.state.current_location"/>
+            <l-marker ref="current_pos" :icon="icon_biking" :lat-lng="$store.state.current_location"/>
 
             <template v-for="st in stations">
                 <l-marker :lat-lng="st.loc" :key="st.id">

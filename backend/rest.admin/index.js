@@ -12,6 +12,20 @@ function op_healthz(req) {
 }
 
 
+function op_whoami(req) {
+    logger.debug("GET whoami");
+    const result = {
+        email: req.session.email,
+        name: req.session.name,
+        is_admin: req.session.is_admin,
+        is_technician: req.session.is_technician,
+        provider: req.session.provider,
+    };
+    logger.debug("Session vars: " + JSON.stringify(result));
+    return result;
+}
+
+
 function op_logout(req) {
     logger.debug("GET logout");
     return utils.promisify(req.session.destroy);
@@ -22,6 +36,7 @@ function op_logout(req) {
 router.get("/healthz",          (req, res, next) => utils.mwrap(req, res, next, () => op_healthz(req)));
 
 // client session handling (mostly for testing)
+router.get("/whoami",           (req, res, next) => utils.mwrap(req, res, next, () => op_whoami(req)));
 router.get("/logout",           (req, res, next) => utils.mwrap(req, res, next, () => op_logout(req)));
 
 // administration of units

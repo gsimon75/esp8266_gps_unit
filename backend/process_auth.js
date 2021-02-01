@@ -7,10 +7,10 @@ const utils = require("./utils");
  * https://firebase.google.com/docs/auth/admin/verify-id-tokens
  */
 const fba = require("firebase-admin");
-const serviceAccount = require("./fitnesstest-2d3ba-firebase-adminsdk-95sfb-e80f43f52a.json");
+const serviceAccount = require("./scooterfleet-firebase-adminsdk-9sbip-0ef9e8fa28.json");
 fba.initializeApp({
   credential: fba.credential.cert(serviceAccount),
-  databaseURL: "https://fitnesstest-2d3ba.firebaseio.com"
+  databaseURL: "https://scooterfleet.firebaseio.com"
 });
 
 const anonymous = { id: -1, is_admin: false };
@@ -63,6 +63,7 @@ function process_auth(req) {
     }
     
     if (!bearer_token.startsWith("Bearer ")) {
+        logger.error("Invalid bearer token '" + bearer_token + "'");
         return Promise.reject(utils.error(400, "ID token must start with 'Bearer '"));
     }
     
