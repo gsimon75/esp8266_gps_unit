@@ -1,4 +1,5 @@
-import {cfaSignIn, cfaSignOut } from 'capacitor-firebase-auth';
+import {cfaSignIn, cfaSignOut } from "capacitor-firebase-auth";
+import { EventBus } from "./event-bus";
 
 const web_app_config = {
     apiKey: "AIzaSyAa8vGbPDQDOtF4cjKqYa_b99hK7KSPqBI",
@@ -11,6 +12,7 @@ const web_app_config = {
 };
 
 function user_has_logged_in(context) {
+    console.log("user_has_logged_in()");
     const user = context.rootState.auth_plugin.auth().currentUser;
     return user.getIdToken(true).then(idToken => {
         context.commit("logged_in", {
@@ -21,7 +23,7 @@ function user_has_logged_in(context) {
             provider_id: user.providerId,
             uid: user.uid,
         });
-        context.dispatch("sign_in_to_backend", idToken);
+        return context.dispatch("sign_in_to_backend", idToken);
     });
 }
 
@@ -79,10 +81,16 @@ export default {
 
             prepare.then(() => {
                 var webPlugin = require("firebase/app");
+                console.log("webPlugin=" + webPlugin);
                 context.commit("set_auth_plugin", webPlugin);
 
-                require("firebase/auth");
-                webPlugin.initializeApp(web_app_config);
+                const fbauth = require("firebase/auth");
+                console.log("fbauth=" + fbauth);
+                const firebase_app = webPlugin.initializeApp(web_app_config);
+                console.log("Checkpoint #1; firebase_app=" + firebase_app);
+                //const aaaa = webPlugin.auth();
+                const aaaa = firebase_app.auth();
+                console.log("Checkpoint #2; aaaa=" + aaaa);
                 webPlugin.auth().useDeviceLanguage(); // or: webPlugin.auth().languageCode = "pt";
                 if (typeof cordova === "undefined") {
                     // platform: web
@@ -105,26 +113,27 @@ export default {
                 }
             });
         },
-        sign_out_from_backend(context) {
-            context.rootState.ax.get("v0/logout").then(() => {
-                console.log("Signed out from backend");
-            });
-        },
         sign_out(context) {
-            if (typeof cordova !== "undefined") {
-                // platform: mobile
-                return cfaSignOut().subscribe();
-            }
-            else {
-                // platform: web
-                return context.rootState.auth_plugin.auth().signOut();
-            }
+            console.log("sign_out()");
+            return context.rootState.ax.get("v0/logout").then(() => {
+                console.log("Signed out from backend");
+                EventBus.$emit("signed-out");
+                if (typeof cordova !== "undefined") {
+                    // platform: mobile
+                    return cfaSignOut().subscribe();
+                }
+                else {
+                    // platform: web
+                    return context.rootState.auth_plugin.auth().signOut();
+                }
+            });
         },
         sign_in_to_backend(context, id_token) {
             console.log("Signing in to backend");
             context.rootState.ax.defaults.headers.common['Authorization'] = "Bearer " + id_token;
             context.rootState.ax.get("v0/whoami").then(result => {
                 console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
+                EventBus.$emit("signed-in", { yadda: 42 });
             }).catch(err => {
                 console.log("Failed to sign in to backend: " + err);
             });
@@ -134,6 +143,7 @@ export default {
                 // platform: mobile
                 return new Promise((resolve, reject) => {
                     try {
+                        console.log("calling cfaSignIn()");
                         cfaSignIn('google.com').subscribe(user => {
                             console.log(JSON.stringify(user));
                             user.getIdToken(true).then(idToken => {
@@ -145,8 +155,9 @@ export default {
                                     provider_id: user.providerId,
                                     uid: user.uid,
                                 });
-                                context.dispatch("sign_in_to_backend", idToken);
-                                resolve();
+                                context.dispatch("sign_in_to_backend", idToken).then(() => {
+                                    resolve();
+                                });
                             });
                         });
                     }
@@ -157,6 +168,7 @@ export default {
             }
             else {
                 // platform: web
+                console.log("calling context.rootState.auth_plugin.auth.GoogleAuthProvider()");
                 var provider = new context.rootState.auth_plugin.auth.GoogleAuthProvider();
                 provider.setCustomParameters({
                     access_type: "offline",
