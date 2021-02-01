@@ -9,7 +9,7 @@ const utils = require("./utils");
 
 var client;
 var db;
-var traces;
+var traces, stations, users;
 
 async function open() {
     client = new MongoClient("mongodb://backend:zeihiwoofeim@localhost:27017/gps_tracker", {
@@ -21,6 +21,9 @@ async function open() {
         await client.connect();
         db = client.db("gps_tracker");
         traces = db.collection("traces");
+        units = db.collection("units");
+        stations = db.collection("stations");
+        users = db.collection("users");
     }
     catch (err) {
         logger.error(err.stack);
@@ -29,7 +32,7 @@ async function open() {
 
 function close() {
     const c = client;
-    client = db = traces = undefined;
+    client = db = traces = units = stations = users = undefined;
     return c.close();
 }
 
@@ -40,6 +43,9 @@ function cursor_all(c) {
 
 module.exports = {
     traces: () => { return traces },
+    units: () => { return units },
+    stations: () => { return stations },
+    users: () => { return users },
     open,
     close,
     cursor_all,

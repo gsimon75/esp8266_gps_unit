@@ -20,6 +20,28 @@ db.createCollection("sessions")
 
 db.createCollection("stations")
 mongoimport -c stations --jsonArray mongodb://backend:zeihiwoofeim@localhost:27017/gps_tracker ../../misc/get_osm_poi/dubai_cafe.json
+db.stations.update({}, [{$addFields: {capacity: { $toInt: { $mod: [ "$id" , 16 ] } }, in_use: 0, }}, ], { multi: true, } )
+
+db.createCollection("users")
+# is_technician: can query units, change unit statuses, can add/decommission units
+# is_admin: can change/add/ban users/admins/technicians
+db.users.insert({email: "gabor.simon75@gmail.com", is_admin: true, is_technician: true })
+
+db.createCollection("units")
+
+
+# status: offline, charging, available, in_use
+# unix timestamp in aggregation pipelines: {$toInt:{$divide:[{$toLong:"$$NOW"},1000]}}}
+
+var now = Math.round(ISODate().getTime() / 1000)
+
+db.units.insert({unit: "Factory", time: now, nonce: null, status: "available", user: null})
+db.units.insert({unit: "Simulated", time: now, nonce: null, status: "in_use", user: "gabor.simon75@gmail.com"})
+db.units.insert({unit: "Unit 1", time: now, nonce: null, status: "available", user: null})
+db.units.insert({unit: "Unit 2", time: now, nonce: null, status: "available", user: null})
+db.units.insert({unit: "Unit 3", time: now, nonce: null, status: "offline", user: null})
+
+
 ```
 
 ## Commands
