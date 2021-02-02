@@ -11,6 +11,7 @@ const web_app_config = {
     appId: "1:355671533390:web:dcfc7550ed03c6cc4ba01f"
 };
 const fcm_public_key = "BDqga4b_taIPZB7XpFUw2CjbDRP8tZu1lKjNUOQS1JyJRpA_5GN35aa-EbaSznWmaaa5a8gcGKgg36rMtLA_F5o";
+const fcm_sender_id = 355671533390;
 
 function user_has_logged_in(context) {
     console.log("user_has_logged_in()");
@@ -142,6 +143,18 @@ export default {
                         console.log("Got registration token: " + JSON.stringify(currentToken));
                         context.rootState.ax.post("v0/subscribe", { fcm_reg_token: currentToken} ).then(result => {
                             console.log("FCM subscription done: " + result.status);
+                            messaging.onMessage((payload) => {
+                                console.log("Message received in fg: " + JSON.stringify(payload));
+                                if (payload.from == fcm_sender_id) {
+                                    if (payload.data.s4_type == "fake") {
+                                        EventBus.$emit("fcm-fake", {
+                                            seq: JSON.parse(payload.data.s4_seq),
+                                            timestamp: JSON.parse(payload.data.s4_seq),
+                                        });
+                                    }
+                                    // else if ...
+                                }
+                            });
                         });
                     }
                     else {
@@ -152,8 +165,9 @@ export default {
                     console.log("An error occurred while retrieving token. ", err);
                 });
 
-                messaging.onMessage(payload => {
-                    console.log("Message received in fg: " + JSON.stringify(payload));
+                navigator.serviceWorker.addEventListener("message", event => {
+                    console.log("Message from serviceworker: " + JSON.stringify(event));
+                    //console.log("Data from serviceworker: " + JSON.stringify(event.data));
                 });
 
                 // ==============================================================================

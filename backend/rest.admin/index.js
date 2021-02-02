@@ -35,7 +35,8 @@ function op_whoami(req) {
 
 function op_logout(req) {
     logger.debug("GET logout");
-    return utils.promisify(req.session.destroy);
+    req.session.destroy();
+    return "ok";
 }
 
 
@@ -52,6 +53,19 @@ function op_subscribe(req) {
     return "ok";
 }
 
+/*
+const tokens_dammit = [
+//    "fwj7IwdfWWXRigVmDweRci:APA91bFYuq4CJxy6ANBXnwcCnO4XMgBtu4EpKzz_OvEaIRsvUzSXEIIFVv_0qijx1RityzIari4oqoPmRRV-Kri0aJ5S1R6JJnh4j-y2hK2IqT604nR3-xYfmc8jXaWcdRUsLoc2HVcS", // messaging/registration-token-not-registered
+//    "fwj7IwdfWWXRigVmDweRci:APA91bGWBOWhEpSnJVeHDhc4ymUgxkQUrx8a49WltZsJCV_t9fwzOm2HzlsixAOtkXT3v07MJnqQmqltRsPOYMMbMTC0PGLf22ZJ6hO9_ntFGGU15Ac-RThIp_nqH-V8ONm4IaVGS1uV", // messaging/registration-token-not-registered
+      "dVA6QKWIbr9bXC6h3K97yg:APA91bHsCRIxBIsfAdMHPIzb0LivxJkun4Ht97B5_Fw3-pffQQ8o9fdXTK0zggeFW5UaK0A_dQNfY2H-E-DA6I-PTvMGSm_78guFsce7xyBW1CN3z0lip625HDWt3znT7-I5p76kWja5",
+      "cxePFvvZg0F5igFho09HT2:APA91bElWTR0T-F7JCGr_EG41ngALrWstOtn6VfQistByDGf67N1R1CdbFjmK0UW4xYyvrKmRsHQmBQmhKt1NWxsaTgHFwwW3LwGshLDCxl7eKO8GdUzMaOvD70UpCvxeaRuOriWR1tE",
+];
+fba.messaging().unsubscribeFromTopic(tokens_dammit, "admin_t").then(response => {
+    logger.debug("Successfully UNsubscribed from topic: " + JSON.stringify(response));
+}).catch(error => {
+    logger.error("Error UNsubscribing from topic: " + error);
+});
+*/
 
 
 // health check for load balancers
@@ -102,6 +116,39 @@ router.use("/station", require("./station"));
  * - add/delete stations
  * - manage station: name, loc, capacity, in_use
  */
+
+// FIXME: for testing: send FCM data msgs periodically (this will be done on data changes)
+
+var fake_msg_seq = 0;
+function send_fake_msg() {
+    logger.debug("send_fake_msg() seq=" + fake_msg_seq);
+
+    var message = {
+        topic: "admin_t",
+        data: {
+            s4_type: "fake",
+            s4_seq: JSON.stringify(fake_msg_seq++),
+            s4_timestamp: JSON.stringify(new Date()),
+        },
+        webpush: {
+            fcmOptions: {
+                link: "",
+            },
+            notification: {
+                requireInteraction: false,
+                silent: true,
+            },
+        },
+    };
+
+    fba.messaging().send(message).then(response => {
+        logger.debug("Successfully sent message: " + JSON.stringify(response)); // Response is a message ID string.
+    }).catch(error => {
+        logger.error("Error sending message: " + error);
+    });
+}
+
+var fake_msg_timer = setInterval(send_fake_msg, 5 * 1000);
 
 module.exports = router;
 
