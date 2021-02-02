@@ -29,7 +29,7 @@ extern uint64_t g_esp_os_us;
 #define USE_UBX
 
 #define TIMEOUT_SEND_CMD_MS         250
-#define TIMEOUT_RECV_ANYTHING_MS    2000
+#define TIMEOUT_RECV_ANYTHING_SEC   2
 
 // if the system time is off by more than this, it'll be just set, and not adjusted gradually
 #define TIME_SET_GRADUAL_MAX_USEC   1000000
@@ -76,15 +76,17 @@ process_new_fix(void) {
 }
 
 
-static void
+static bool
 process_new_time(uint64_t time_usec) {
     if ((time_usec / 1e6) <= source_date_epoch) {
         // runs earlier than the build time -> nonsense
-        return;
+        return false;
     }
     if (gps_fix.time_usec == time_usec) {
-        return;
+        return false;
     }
+
+    bool systime_changed = false;
 
     gps_fix.time_usec = time_usec;
     ESP_LOGD(TAG, "New time %lu", (unsigned long)(time_usec / 1e6));
@@ -118,6 +120,7 @@ process_new_time(uint64_t time_usec) {
 
         settimeofday(&tv, NULL);
         ESP_LOGI(TAG, "System time set to %lu (delta_usec=%f)", tv.tv_sec, (double)delta_usec);
+        systime_changed = true;
     }
     else {
         int freq;
@@ -150,7 +153,25 @@ process_new_time(uint64_t time_usec) {
     }
     xEventGroupSetBits(main_event_group, GOT_GPS_TIME_BIT);
     xEventGroupClearBits(main_event_group, GOT_GPS_TIME_BIT);
+    return systime_changed;
 }
+
+#ifdef USE_UBX
+static void
+enable_NAV_POSLLH(void) {
+    send_ubx("\xb5\x62\x06\x01\x03\x00\x01\x02\x01\x0e\x47", TIMEOUT_SEND_CMD_MS); // enable NAV-POSLLH
+}
+
+static void
+enable_NAV_VELNED(void) {
+    send_ubx("\xb5\x62\x06\x01\x03\x00\x01\x12\x01\x1e\x67", TIMEOUT_SEND_CMD_MS); // enable NAV-VELNED
+}
+
+static void
+enable_NAV_TIMEUTC(void) {
+    send_ubx("\xb5\x62\x06\x01\x03\x00\x01\x21\x01\x2d\x85", TIMEOUT_SEND_CMD_MS); // enable NAV-TIMEUTC
+}
+#endif // !USE_UBX
 
 static void
 reinit_gps(void) {
@@ -169,9 +190,9 @@ reinit_gps(void) {
 #endif // USE_NMEA
 
 #ifdef USE_UBX
-    send_ubx("\xb5\x62\x06\x01\x03\x00\x01\x02\x01\x0e\x47", TIMEOUT_SEND_CMD_MS); // enable NAV-POSLLH
-    send_ubx("\xb5\x62\x06\x01\x03\x00\x01\x12\x01\x1e\x67", TIMEOUT_SEND_CMD_MS); // enable NAV-VELNED
-    send_ubx("\xb5\x62\x06\x01\x03\x00\x01\x21\x01\x2d\x85", TIMEOUT_SEND_CMD_MS); // enable NAV-TIMEUTC
+    enable_NAV_POSLLH();
+    enable_NAV_VELNED();
+    enable_NAV_TIMEUTC();
 #endif // !USE_UBX
 }
 
@@ -198,6 +219,8 @@ split_by_comma(char *msg, char **field, int last_idx) {
 
 
 #ifdef USE_NMEA
+static time_t last_GPRMC_time;
+
 static bool
 got_GPRMC(char *msg) {
     char * field[13];
@@ -281,6 +304,7 @@ got_GPRMC(char *msg) {
     if (changed) {
         process_new_fix();
     }
+    time(&last_GPRMC_time);
     return true;
 }
 #endif // USE_NMEA
@@ -340,6 +364,10 @@ got_nmea(const uint8_t *msg, size_t len) {
 
 
 #ifdef USE_UBX
+static time_t last_NAV_POSLLH_time;
+static time_t last_NAV_TIMEUTC_time;
+static time_t last_NAV_VELNED_time;
+
 static void
 got_NAV_POSLLH(const uint8_t *payload) {
     uint32_t iTOW   = le32dec(payload +  0);
@@ -367,11 +395,10 @@ got_NAV_POSLLH(const uint8_t *payload) {
             process_new_fix();
         }
     }
+    time(&last_NAV_POSLLH_time);
 }
-#endif // USE_UBX
 
 
-#ifdef USE_UBX
 static void
 got_NAV_TIMEUTC(const uint8_t *payload) {
     uint32_t iTOW   = le32dec(payload +  0);
@@ -399,13 +426,15 @@ got_NAV_TIMEUTC(const uint8_t *payload) {
         };
         time_t time_sec = timegm(&dt);
         uint64_t time_usec = (1000000ULL * time_sec) + (nano / 1000);
-        process_new_time(time_usec);
+        if (process_new_time(time_usec)) {
+            time(&last_NAV_POSLLH_time);
+            time(&last_NAV_VELNED_time);
+        }
     }
+    time(&last_NAV_TIMEUTC_time);
 }
-#endif // USE_UBX
 
 
-#ifdef USE_UBX
 static void
 got_NAV_VELNED(const uint8_t *payload) {
     uint32_t iTOW    = le32dec(payload +  0);
@@ -434,6 +463,7 @@ got_NAV_VELNED(const uint8_t *payload) {
             process_new_fix();
         }
     }
+    time(&last_NAV_VELNED_time);
 }
 #endif // USE_UBX
 
@@ -611,7 +641,7 @@ uart_event_task(void *pvParameters) {
     ESP_LOGI(TAG, "Serial receiver start");
     for (keep_running = true; keep_running; ) {
         uart_event_t event;
-        if (!xQueueReceive(uart0_queue, (void *)&event, pdMS_TO_TICKS(TIMEOUT_RECV_ANYTHING_MS))) {
+        if (!xQueueReceive(uart0_queue, (void *)&event, pdMS_TO_TICKS(TIMEOUT_RECV_ANYTHING_SEC * 1000))) {
             reinit_gps();
         }
         else {
@@ -645,6 +675,21 @@ uart_event_task(void *pvParameters) {
                     ESP_LOGI(TAG, "Unknown event type %d", event.type);
                     break;
             }
+#ifdef USE_UBX
+            {
+                time_t now;
+                time(&now);
+                if ((now - last_NAV_POSLLH_time) > TIMEOUT_RECV_ANYTHING_SEC) {
+                    enable_NAV_POSLLH();
+                }
+                if ((now - last_NAV_VELNED_time) > TIMEOUT_RECV_ANYTHING_SEC) {
+                    enable_NAV_VELNED();
+                }
+                if ((now - last_NAV_TIMEUTC_time) > TIMEOUT_RECV_ANYTHING_SEC) {
+                    enable_NAV_TIMEUTC();
+                }
+            }
+#endif // USE_UBX
         }
     }
     uart_driver_delete(UART_NUM_0);
