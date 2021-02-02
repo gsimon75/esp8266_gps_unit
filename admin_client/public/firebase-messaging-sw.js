@@ -1,6 +1,3 @@
-// Give the service worker access to Firebase Messaging.
-// Note that you can only use Firebase Messaging here. Other Firebase libraries
-// are not available in the service worker.
 importScripts('https://www.gstatic.com/firebasejs/8.2.5/firebase-app.js');
 importScripts('https://www.gstatic.com/firebasejs/8.2.5/firebase-messaging.js');
 
@@ -20,6 +17,9 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage(payload => {
     console.log("Message received in bg: " + JSON.stringify(payload));
+    // https://stackoverflow.com/questions/65946708/javascript-service-worker-send-message-in-background
+    //clients.matchAll({ includeUncontrolled: true }).then(clients => clients.forEach(client => client.postMessage(payload)));
+    return Promise.reject();
 });
 
 // vim: set sw=4 ts=4 indk= et:
