@@ -37,6 +37,8 @@ app.use(session({
     },
 }));
 
+const expressWs = require("express-ws")(app);
+
 const bodyParser = require("body-parser");
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: false}));

@@ -28,6 +28,11 @@ function process_auth(req) {
         return Promise.resolve();
     }
 
+    if (req.session.email) {
+        // already have a session, don't care about the "Authorization" header
+        return Promise.resolve();
+    }
+
     const bearer_token = req.get("Authorization");
 
     if (!bearer_token) {
@@ -64,7 +69,7 @@ function process_auth(req) {
             }
             else {
                 // new user, auto-subcribe as plain user
-                return db.users.insert({email: decodedToken.email, is_admin: false, is_technician: false })
+                return db.users.insertOne({email: decodedToken.email, is_admin: false, is_technician: false })
             }
         });
     });
