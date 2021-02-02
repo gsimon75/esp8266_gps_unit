@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created with BasicAirData GPS Logger for Android - ver. 2.2.6 -->
+<!-- Track 3 = 478 TrackPoints + 0 Placemarks -->
+<gpx version="1.0"
+     creator="BasicAirData GPS Logger 2.2.6"
+     xmlns="http://www.topografix.com/GPX/1/0"
+     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:schemaLocation="http://www.topografix.com/GPX/1/0 http://www.topografix.com/GPX/1/0/gpx.xsd">
+<name>GPS Logger 20201003-092331</name>
+<time>2020-10-03T16:52:42Z</time>
+
+<trk>
+ <name>Track 20201003-092331</name>
+ <trkseg>
+  <trkpt lat="25.11494667" lon="55.20987833"><ele>-3.400</ele><time>2020-10-03T05:27:53Z</time><speed>10.415</speed><sat>17</sat></trkpt>
+  <trkpt lat="25.11488167" lon="55.20983167"><ele>-4.900</ele><time>2020-10-03T05:27:54Z</time><speed>9.985</speed><sat>17</sat></trkpt>
+  <trkpt lat="25.11480500" lon="55.20978500"><ele>-4.900</ele><time>2020-10-03T05:27:55Z</time><speed>9.498</speed><sat>17</sat></trkpt>
+  <trkpt lat="25.11473500" lon="55.20973500"><ele>-4.600</ele><time>2020-10-03T05:27:56Z</time><speed>9.066</speed><sat>17</sat></trkpt>
+  <trkpt lat="25.11466667" lon="55.20968667"><ele>-4.100</ele><time>2020-10-03T05:27:57Z</time><speed>8.814</speed><sat>16</sat></trkpt>
+  <trkpt lat="25.11460333" lon="55.20963833"><ele>-3.700</ele><time>2020-10-03T05:27:58Z</time><speed>8.407</speed><sat>16</sat></trkpt>
+  <trkpt lat="25.11454833" lon="55.20959333"><ele>-3.400</ele><time>2020-10-03T05:27:59Z</time><speed>7.262</speed><sat>16</sat></trkpt>
+  <trkpt lat="25.11450000" lon="55.20955333"><ele>-3.500</ele><time>2020-10-03T05:28:00Z</time><speed>6.414</speed><sat>16</sat></trkpt>
+  <trkpt lat="25.11445333" lon="55.20951833"><ele>-3.700</ele><time>2020-10-03T05:28:01Z</time><speed>5.968</speed><sat>16</sat></trkpt>
+  <trkpt lat="25.11441000" lon="55.20948500"><ele>-3.800</ele><time>2020-10-03T05:28:02Z</time><speed>6.263</speed><sat>16</sat></trkpt>
+  <trkpt lat="25.11436167" lon="55.20944500"><ele>-4.000</ele><time>2020-10-03T05:28:03Z</time><speed>7.629</speed><sat>17</sat></trkpt>
+  <trkpt lat="25.11429833" lon="55.20939500"><ele>-4.300</ele><time>2020-10-03T05:28:04Z</time><speed>9.452</speed><sat>17</sat></trkpt>
+  <trkpt lat="25.11422833" lon="55.20934333"><ele>-4.400</ele><time>2020-10-03T05:28:05Z</time><speed>9.423</speed><sat>16</sat></trkpt>
+  <trkpt lat="25.11415833" lon="55.20929000"><ele>-4.700</ele><time>2020-10-03T05:28:06Z</time><speed>9.159</speed><sat>16</sat></trkpt>
+  <trkpt lat="25.11409667" lon="55.20924000"><ele>-4.800</ele><time>2020-10-03T05:28:07Z</time><speed>8.111</speed><sat>16</sat></trkpt>
+ </trkseg>
+</trk>
+
+</gpx>

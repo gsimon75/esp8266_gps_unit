@@ -1,0 +1,16 @@
+{
+  "name": "com.wodeewa.scooter_mock",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "simulate": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "gabor.simon75@gmail.com",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.21.1",
+    "xml-parser": "^1.2.1"
+  }
+}
