@@ -3,9 +3,13 @@ const router = express.Router();
 const db = require("../database");
 const logger = require("../logger").getLogger("admin");
 const utils = require("../utils");
+const EventEmitter = require("events");
 
 const fba = require("firebase-admin");
 
+class AdminEventEmitter extends EventEmitter {}
+
+const admin_event_emitter = new AdminEventEmitter();
 
 function op_healthz(req) {
     logger.debug("GET healthz");
@@ -94,7 +98,7 @@ router.ws("/echo", function(ws, req) {
 */
 
 router.get("/echo", (req, res) => {
-    logger.debug("echo: start");
+    logger.debug("echo for " + req.session.email + ": start");
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -102,46 +106,45 @@ router.get("/echo", (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.flushHeaders(); // flush the headers to establish SSE with client
 
-    let counter = 0;
-    let interValID = setInterval(() => {
-        logger.debug("echo: timer " + counter);
-        counter++;
-        if (counter >= 10) {
-            clearInterval(interValID);
-            res.write("event: end\ndata: so long\n\n");
-            res.end();
-            return;
+    let handler = (etype, data) => {
+        logger.debug("echo for " + req.session.email + ": got data to send, etype=" + etype + ", data=" + JSON.stringify(data));
+        setImmediate(() => {
+            if (etype !== null) {
+                res.write("event: " + etype + "\ndata: " + JSON.stringify(data) + "\n\n");
+            }
+            else {
+                res.write("event: end\ndata: " + JSON.stringify(data) + "\n\n");
+                res.end();
+            }
+        });
+        if (etype == null) {
+            admin_event_emitter.removeListener("sendit", handler);
         }
-        // NOTE: res.write() instead of res.send()
-        res.write("event: message\ndata: " + JSON.stringify({num: counter}) + "\n\n");
-    }, 1000);
+    };
+
+    admin_event_emitter.addListener("sendit", handler);
 
     // If client closes connection, stop sending events
     res.on("close", () => {
-        logger.debug("echo: client dropped me");
-        clearInterval(interValID);
+        logger.debug("echo for " + req.session.email + ": client dropped me");
+        admin_event_emitter.removeListener("sendit", handler);
         res.end();
     });
 });
 
 
-/*
 var fake_msg_seq = 0;
 function send_fake_msg() {
     logger.debug("send_fake_msg() seq=" + fake_msg_seq);
 
     var message = {
-        topic: "admin_t",
-        data: {
-            s4_type: "fake",
-            s4_seq: fake_msg_seq++,
-            s4_timestamp: new Date(),
-        },
+        s4_type: "fake",
+        s4_seq: fake_msg_seq++,
+        s4_timestamp: new Date(),
     };
-    // TODO: actually send that message
+    admin_event_emitter.emit("sendit", "message", message);
 }
 var fake_msg_timer = setInterval(send_fake_msg, 5 * 1000);
-*/
 
 module.exports = router;
 
