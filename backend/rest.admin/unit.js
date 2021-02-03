@@ -60,7 +60,7 @@ function filtered_pipeline(req) {
     }
     else {
         // last records only:
-        // db.traces.aggregate([ {$match: ...},   {$sort: {unit: 1, time: -1}}, {$group: {_id: "$unit", lastrec: {$first: "$$CURRENT"}}}, {$replaceWith: "$lastrec"}    ])
+        // db.unit_location.aggregate([ {$match: ...},   {$sort: {unit: 1, time: -1}}, {$group: {_id: "$unit", lastrec: {$first: "$$CURRENT"}}}, {$replaceWith: "$lastrec"}    ])
         pipe = [
             { $match: filter },
             { $sort: { unit: 1, time: -1 } },
@@ -80,7 +80,7 @@ function op_get_status(req) {
         throw utils.error(401, "must be technician");
     }
     const pipe = filtered_pipeline(req);
-    return db.cursor_all(db.units().aggregate(pipe));
+    return db.cursor_all(db.unit_status().aggregate(pipe));
 }
 
 
@@ -90,7 +90,7 @@ function op_get_trace(req) {
         throw utils.error(401, "must be technician");
     }
     const pipe = filtered_pipeline(req);
-    return db.cursor_all(db.traces().aggregate(pipe));
+    return db.cursor_all(db.unit_location().aggregate(pipe));
 }
 
 

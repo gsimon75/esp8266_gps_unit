@@ -16,6 +16,7 @@ function op_healthz(req) {
 router.get("/healthz",          (req, res, next) => utils.mwrap(req, res, next, () => op_healthz(req)));
 
 // unit ops
+router.use("/startup", require("./startup"));
 router.use("/report", require("./report"));
 //router.use("/agps", require("./agps"));
 

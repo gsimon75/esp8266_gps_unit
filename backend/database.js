@@ -3,13 +3,13 @@ const logger = require("./logger").getLogger("database");
 const utils = require("./utils");
 
 /* Usage:
-    return db.cursor_all(db.traces().find());
-    return db.traces().findOne({unit: id});
+    return db.cursor_all(db.unit_location().find());
+    return db.unit_location().findOne({unit: id});
 */
 
-var client;
-var db;
-var traces, stations, users;
+var client, db;
+var stations, users;    // state-like collections
+var unit_location, unit_battery, unit_startup, unit_status; // log-like collections
 
 async function open() {
     client = new MongoClient("mongodb://backend:...@localhost:27017/gps_tracker", {
@@ -20,10 +20,12 @@ async function open() {
     try {
         await client.connect();
         db = client.db("gps_tracker");
-        traces = db.collection("traces");
-        units = db.collection("units");
         stations = db.collection("stations");
         users = db.collection("users");
+        unit_location = db.collection("unit_location");
+        unit_battery = db.collection("unit_battery");
+        unit_startup = db.collection("unit_startup");
+        unit_status = db.collection("unit_status");
     }
     catch (err) {
         logger.error(err.stack);
@@ -32,7 +34,9 @@ async function open() {
 
 function close() {
     const c = client;
-    client = db = traces = units = stations = users = undefined;
+    client = db =
+        stations = users =
+        unit_location = unit_battery = unit_startup = unit_status = undefined;
     return c.close();
 }
 
@@ -42,10 +46,12 @@ function cursor_all(c) {
 }
 
 module.exports = {
-    traces: () => { return traces },
-    units: () => { return units },
     stations: () => { return stations },
     users: () => { return users },
+    unit_location: () => { return unit_location },
+    unit_battery: () => { return unit_battery },
+    unit_startup: () => { return unit_startup },
+    unit_status: () => { return unit_status },
     open,
     close,
     cursor_all,

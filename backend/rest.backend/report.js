@@ -16,11 +16,34 @@ function op_insert(req) {
     if (!unit_cn) {
         throw utils.error(400, "SSL subject DN has no CN");
     }
-    let record = { ...req.body, unit: unit_cn[1] };
-    logger.debug("op_insert(" + JSON.stringify(record) + ")");
+    let unit = unit_cn[1];
+    let now = Math.round(new Date().getTime() / 1000);
 
-    events.admin_event_emitter.emit("sendit", "unit", record);
-    return db.traces().insertOne(record).then(() => null);
+    logger.debug("op_report, unit='" + unit + "', report:" + JSON.stringify(req.body));
+    let promises = [];
+    if (("lat" in req.body) && ("lon" in req.body)) {
+        let record = {
+            unit,
+            time: now,
+            lat: req.body.lat,
+            lon: req.body.lon,
+            azi: req.body.azi,
+            spd: req.body.spd,
+        }
+        events.admin_event_emitter.emit("sendit", "unit_location", record);
+        promises.push(db.unit_location().insertOne(record));
+    }
+    if ("bat" in req.body) {
+        let record = {
+            unit,
+            time: now,
+            bat: req.body.bat,
+        }
+        events.admin_event_emitter.emit("sendit", "unit_battery", record);
+        promises.push(db.unit_battery().insertOne(record));
+    }
+
+    return Promise.all(promises).then(() => null);
 }
 
 router.post("/",                (req, res, next) => utils.mwrap(req, res, next, () => op_insert(req)));
