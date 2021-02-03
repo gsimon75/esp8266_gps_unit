@@ -47,7 +47,7 @@ init_status(void) {
     lcd_clear();
     lcd_puts(11, 0, unit_name);
     lcd_puts(11, 1, unit_status_str[unit_status]);
-    //lcd_puts(11, 2, "");
+    //lcd_puts(11, 2, "GPS:abcdef");
     //lcd_puts(11, 3, "+123.4567");
     //lcd_puts(11, 4, " -12.3456");
     //lcd_puts(11, 5, "2021-01-02");
@@ -58,45 +58,79 @@ init_status(void) {
     lcd_qr(buf, len);
 }
 
+
 static void
 show_status(void) {
     time_t tt;
+    time(&tt);
+
     struct tm t;
+    gmtime_r(&tt, &t);
+
     char buf[12];
 
-    time(&tt);
-    if (gps_fix.is_valid) {
-        gmtime_r(&tt, &t);
-   
-        snprintf(buf, sizeof(buf), "%+10.5f", gps_fix.latitude);
-        lcd_puts(11, 3, buf);
-        snprintf(buf, sizeof(buf), "%+10.5f", gps_fix.longitude);
-        lcd_puts(11, 4, buf);
-        snprintf(buf, sizeof(buf), "%04u-%02u-%02u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
-        lcd_puts(11, 5, buf);
-        snprintf(buf, sizeof(buf), " %02u:%02u:%02u " ,t.tm_hour, t.tm_min, t.tm_sec);
-        lcd_puts(11, 6, buf);
-        snprintf(buf, sizeof(buf), "U: %4u mV", adc_mV);
-        lcd_puts(11, 7, buf);
-    }
-    else {
-        lcd_puts(11, 3, "  no gps  ");
-        lcd_puts(11, 4, "  signal  ");
-        if (source_date_epoch < tt) {
-            gmtime_r(&tt, &t);
-            snprintf(buf, sizeof(buf), "%04u-%02u-%02u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
-            lcd_puts(11, 5, buf);
-            snprintf(buf, sizeof(buf), " %02u:%02u:%02u " ,t.tm_hour, t.tm_min, t.tm_sec);
-            lcd_puts(11, 6, buf);
-        }
-        else {
-            lcd_puts(11, 5, " no valid ");
-            lcd_puts(11, 6, "   time   ");
-        }
-        snprintf(buf, sizeof(buf), "U: %4u mV", adc_mV);
-        lcd_puts(11, 7, buf);
-    }
+    snprintf(buf, sizeof(buf), "GPS:%6s", gps_status_names[gps_status]);
+    lcd_puts(11, 2, buf);
+    snprintf(buf, sizeof(buf), "%+10.5f", gps_fix.latitude);
+    lcd_puts(11, 3, buf);
+    snprintf(buf, sizeof(buf), "%+10.5f", gps_fix.longitude);
+    lcd_puts(11, 4, buf);
+    snprintf(buf, sizeof(buf), "%04u-%02u-%02u", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
+    lcd_puts(11, 5, buf);
+    snprintf(buf, sizeof(buf), " %02u:%02u:%02u " ,t.tm_hour, t.tm_min, t.tm_sec);
+    lcd_puts(11, 6, buf);
+    snprintf(buf, sizeof(buf), "U: %4u mV", adc_mV);
+    lcd_puts(11, 7, buf);
 }
+
+
+static void
+post_body(https_conn_context_t *ctx, bool *connected, const char *endpoint, const char *body, size_t bodylen) {
+    ESP_LOGD(TAG, "Body (len=%d):\n%s", bodylen, body);
+    do {
+        if (!*connected) {
+            ESP_LOGI(TAG, "Reconnecting to LRep server");
+            if (!https_connect(ctx, DATA_SERVER_NAME, DATA_SERVER_PORT)) {
+                // couldn't connect: drop this report, try again with the next one
+                break;
+            }
+            *connected = true;
+        }
+        if (!https_send_request(ctx, "POST", DATA_SERVER_NAME, DATA_PATH, endpoint, "Connection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: %d\r\n", bodylen)
+            || !https_send_data(ctx, body, bodylen)
+            ) {
+            // couldn't send: conn closed?, reconnect, retry
+            ESP_LOGW(TAG, "Send failed, reconnect");
+            https_disconnect(ctx);
+            *connected = false;
+            continue;
+        }
+        int status = https_read_statusline(ctx);
+        ESP_LOGD(TAG, "Report status: %d", status);
+        while (https_read_header(ctx, NULL, NULL)) {
+            // FIXME: handle "Connection: close"
+        }
+        while (https_read_body_chunk(ctx, NULL, NULL)) {
+        }
+
+        if (status < 100) {
+            // couldn't receive: conn closed?, reconnect, retry
+            ESP_LOGW(TAG, "Recv failed, reconnect");
+            https_disconnect(ctx);
+            *connected = false;
+        }
+        else if ((200 <= status) && (status < 300)) {
+            // success, done
+        }
+        else if ((400 <= status) && (status < 600)) {
+            // 4xx: re-sending the same data wouldn't help
+            // 5xx: Theoretically it would make sense to re-send the same data, so when the server-side error is resolved, it could get
+            // through, but it would be obsolete then, so it's better just to drop this report and try again with the next one
+            ESP_LOGE(TAG, "Data report refused: %d", status);
+        }
+    } while (!*connected);
+}
+
 
 void
 location_reporter_task(void * pvParameters __attribute__((unused))) {
@@ -116,6 +150,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         printf("LRep mem error\n");
         goto error;
     }
+    unsigned int bodylen = 0;
 
     {
         nvs_handle nvs;
@@ -227,9 +262,14 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
     unit_nonce = esp_random();
     ESP_LOGI(TAG, "Unit name='%s', nonce=0x%08x", unit_name, unit_nonce);
 
+    // send the nonce
+    {
+        bodylen = snprintf(body, BODY_MAX - 1, "{\"nonce\":%u}", unit_nonce);
+        post_body(&ctx, &connected, "startup", body, bodylen);
+    }
+
 #ifdef USE_AGPS
     // fetch the AGPS data and send it to gps
-    task_info();
     ESP_LOGI(TAG, "Fetching AGPS data");
     {
         uint8_t *agps_data = NULL;
@@ -246,46 +286,45 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                 ESP_LOGW(TAG, "Send failed, reconnect");
                 https_disconnect(&ctx);
                 connected = false;
+                continue;
+            }
+            int status = https_read_statusline(&ctx);
+            while (https_read_header(&ctx, NULL, NULL)) {
+                // FIXME: handle "Connection: close"
+            }
+            ESP_LOGD(TAG, "AGPS data length: %d", ctx.content_length);
+
+            uint8_t *chunk, *p;
+            size_t chunk_len;
+            if ((200 <= status) && (status < 300)) {
+                agps_data = (uint8_t*)realloc(agps_data, ctx.content_length);
+                p = agps_data;
             }
             else {
-                int status = https_read_statusline(&ctx);
-                while (https_read_header(&ctx, NULL, NULL)) {
-                    // FIXME: handle "Connection: close"
+                p = NULL;
+            }
+            while (https_read_body_chunk(&ctx, &chunk, &chunk_len)) {
+                if (p) {
+                    memcpy(p, chunk, chunk_len);
+                    p += chunk_len;
                 }
-                ESP_LOGD(TAG, "AGPS data length: %d", ctx.content_length);
+            }
 
-                uint8_t *chunk, *p;
-                size_t chunk_len;
-                if ((200 <= status) && (status < 300)) {
-                    agps_data = (uint8_t*)realloc(agps_data, ctx.content_length);
-                    p = agps_data;
-                }
-                else {
-                    p = NULL;
-                }
-                while (https_read_body_chunk(&ctx, &chunk, &chunk_len)) {
-                    if (p) {
-                        memcpy(p, chunk, chunk_len);
-                        p += chunk_len;
-                    }
-                }
-
-                if (status < 100) {
-                    // couldn't receive: conn closed?, reconnect, retry
-                    ESP_LOGW(TAG, "Recv failed, reconnect");
-                    https_disconnect(&ctx);
-                    connected = false;
-                }
-                else if ((200 <= status) && (status < 300)) {
-                    // success, done
-                    ESP_LOGI(TAG, "Got AGPS data, len=%u", ctx.content_length);
-                    //if (agps_data) {
-                    //    gps_add_agps(agps_data, ctx.content_length);
-                    //}
-                }
-                else if ((400 <= status) && (status < 600)) {
-                    ESP_LOGE(TAG, "AGPS data refused: %d", status);
-                }
+            if (status < 100) {
+                // couldn't receive: conn closed?, reconnect, retry
+                ESP_LOGW(TAG, "Recv failed, reconnect");
+                https_disconnect(&ctx);
+                connected = false;
+            }
+            else if ((200 <= status) && (status < 300)) {
+                // success, done
+                ESP_LOGI(TAG, "Got AGPS data, len=%u", ctx.content_length);
+                //if (agps_data) {
+                //    gps_add_agps(agps_data, ctx.content_length);
+                //}
+            }
+            else if ((400 <= status) && (status < 600)) {
+                ESP_LOGE(TAG, "AGPS data refused: %d", status);
             }
         } while (!connected);
         if (agps_data) {
@@ -300,7 +339,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
 
     init_status();
     for (keep_running = true; keep_running; ) {
-        EventBits_t uxBits = xEventGroupWaitBits(main_event_group, GOT_GPS_FIX_BIT | GOT_GPS_TIME_BIT, false, false, time_trshld_ticks);
+        EventBits_t uxBits = xEventGroupWaitBits(main_event_group, GOT_GPS_FIX_BIT | GOT_GPS_TIME_BIT, pdTRUE, pdFALSE, time_trshld_ticks);
 
         {
             uint16_t raw_adc;
@@ -317,13 +356,14 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
 
         show_status();
 
-        unsigned int bodylen = 0;
-        if ((uxBits & GOT_GPS_FIX_BIT) && gps_fix.is_valid) {
-            time_t tt = gps_fix.time_usec / 1e6;
-
+        time_t tt;
+        time(&tt);
+        bool do_send = time_trshld && ((last_time + time_trshld) < tt);
+        bodylen = 0;
+        if (uxBits & GOT_GPS_FIX_BIT) {
             // check if the time limit is exceeded
-            bool do_send = time_trshld && ((last_time + time_trshld) < tt);
             if (!do_send) {
+                ESP_LOGD(TAG, "Time trshld not reached, last_time=%lu, time_trshld=%u, tt=%lu", last_time, time_trshld, tt);
                 // check if the distance is more than the threshold
                 // NOTE: not the correct formula (https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas)
                 // but only an approximation
@@ -337,80 +377,25 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
                     ESP_LOGD(TAG, "Not far enough; d2=%e, trshld=%e", delta_square, dist_trshld_deg2);
                 }
             }
-
             if (do_send) {
                 // Coordinate precision: https://xkcd.com/2170/
                 // { unit: \"test-1\", time: 1608739445000, lat: 25.04, lon: 55.25, alt: 30.11, battery: 3278.123 }
                 last_latitude = gps_fix.latitude;
                 last_longitude = gps_fix.longitude;
+                bodylen = snprintf(body, BODY_MAX - 1, "{\"lat\":%.4f,\"lon\":%.4f,\"azi\":%.0f,\"spd\":%.0f,\"bat\":%u}",
+                    gps_fix.latitude, gps_fix.longitude, gps_fix.azimuth, gps_fix.speed_kph, adc_mV);
+                ESP_LOGD(TAG, "Sending fix (len=%d):\n%s", bodylen, body);
                 last_time = tt;
-                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"nonce\":%u,\"time\":%lu,\"lat\":%.4f,\"lon\":%.4f,\"azi\":%.0f,\"spd\":%.0f,\"bat\":%u}",
-                    unit_name, unit_nonce, (unsigned long)(gps_fix.time_usec / 1e6), gps_fix.latitude, gps_fix.longitude, gps_fix.azimuth, gps_fix.speed_kph, adc_mV);
             }
         }
-        else {
-            time_t tt;
-            time(&tt);
-            if (source_date_epoch < tt) {
-                if (time_trshld && ((last_time + time_trshld) < tt)) {
-                    last_time = tt;
-                    bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"nonce\":%u,\"time\":%lu,\"bat\":%u}", unit_name, unit_nonce, tt, adc_mV);
-                }
-            }
-            else {
-                bodylen = snprintf(body, BODY_MAX - 1, "{\"unit\":\"%s\",\"nonce\":%u,\"bat\":%u}", unit_name, unit_nonce, adc_mV);
-            }
+        else if (do_send) {
+            ESP_LOGD(TAG, "No fix; uxBits=0x%u", uxBits);
+            bodylen = snprintf(body, BODY_MAX - 1, "{\"bat\":%u}", adc_mV);
         }
 
-        if (bodylen == 0) {
-            continue;
+        if (bodylen > 0) {
+            post_body(&ctx, &connected, DATA_ENDPOINT, body, bodylen);
         }
-        //ESP_LOGD(TAG, "Body (len=%d):\n%s", bodylen, body);
-        //task_info();
-
-        do {
-            if (!connected) {
-                ESP_LOGI(TAG, "Reconnecting to LRep server");
-                if (!https_connect(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT)) {
-                    // couldn't connect: drop this report, try again with the next one
-                    break;
-                }
-                connected = true;
-            }
-            if (!https_send_request(&ctx, "POST", DATA_SERVER_NAME, DATA_PATH, DATA_ENDPOINT, "Connection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: %d\r\n", bodylen)
-                || !https_send_data(&ctx, body, bodylen)
-                ) {
-                // couldn't send: conn closed?, reconnect, retry
-                ESP_LOGW(TAG, "Send failed, reconnect");
-                https_disconnect(&ctx);
-                connected = false;
-            }
-            else {
-                int status = https_read_statusline(&ctx);
-                ESP_LOGD(TAG, "Report status: %d", status);
-                while (https_read_header(&ctx, NULL, NULL)) {
-                    // FIXME: handle "Connection: close"
-                }
-                while (https_read_body_chunk(&ctx, NULL, NULL)) {
-                }
-
-                if (status < 100) {
-                    // couldn't receive: conn closed?, reconnect, retry
-                    ESP_LOGW(TAG, "Recv failed, reconnect");
-                    https_disconnect(&ctx);
-                    connected = false;
-                }
-                else if ((200 <= status) && (status < 300)) {
-                    // success, done
-                }
-                else if ((400 <= status) && (status < 600)) {
-                    // 4xx: re-sending the same data wouldn't help
-                    // 5xx: Theoretically it would make sense to re-send the same data, so when the server-side error is resolved, it could get
-                    // through, but it would be obsolete then, so it's better just to drop this report and try again with the next one
-                    ESP_LOGE(TAG, "Data report refused: %d", status);
-                }
-            }
-        } while (!connected);
     }
     if (connected) {
         https_disconnect(&ctx);
