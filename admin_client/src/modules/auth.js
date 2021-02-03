@@ -138,16 +138,13 @@ export default {
 
                 // ==============================================================================
                 var source = new EventSource("/v0/event");
-                source.addEventListener("message", event => {
-                    console.log("sse incoming message: " + event.data);
-                }, false);
-                source.addEventListener("unit", event => {
-                    console.log("sse incoming unit: " + event.data);
-                    EventBus.$emit("unit", JSON.parse(event.data));
-                }, false);
-                source.addEventListener("station", event => {
-                    console.log("sse incoming station: " + event.data);
-                }, false);
+                ["station", "unit_location", "unit_battery", "unit_status"].forEach(t => {
+                    let listener = event => {
+                        console.log("sse incoming " + t + ": " + event.data);
+                        EventBus.$emit(t, JSON.parse(event.data));
+                    };
+                    source.addEventListener(t, listener, false);
+                });
                 source.addEventListener("end", event => {
                     console.log("sse wants to close the connection: " + event.data);
                     source.close();

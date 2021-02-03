@@ -151,54 +151,38 @@ export default {
             this.$store.state.ax.get("/v0/unit/trace").then(response => {
                 // response.status == 200
                 for (var u of response.data) {
-                    // {"_id":"600ee41459fa9c4248ea72cb","unit":"gps_unit_0","nonce":655651705,"time":1611588627,"lat":25.0458,"lon":55.2457,"azi":0,"spd":0,"bat":1974}
+                    // {"_id":"600ee41459fa9c4248ea72cb","unit":"gps_unit_0","time":1611588627,"lat":25.0458,"lon":55.2457,"azi":0,"spd":0}
                     tmpunits[u.unit] = {
                         unit: u.unit,
-                        nonce: u.nonce,
-                        time: u.time,
-                        loc: ((u.lat !== undefined) && (u.lon !== undefined)) ? latLng(u.lat, u.lon) : false,
+                        location_time: u.time,
+                        loc: latLng(u.lat, u.lon),
                         azi: u.azi,
                         spd: u.spd,
-                        bat: u.bat,
+                        spdt: (u.spd * 3.6).toFixed(1),
                     };
                 }
                 return this.$store.state.ax.get("/v0/unit/status");
             }).then(response => {
                 // response.status == 200
-                let nu = {}
                 for (var u of response.data) {
-                    // {"_id":"6016e31786ae8c98ba825c2d","unit":"Simulated","nonce":null,"status":"in_use","user":"gabor.simon75@gmail.com","time":1612118833}
-                    nu[u.unit] = {
-                        unit: u.unit,
-                        status_time: u.time,
-                        status: u.status,
-                        user: u.user
-                    };
+                    // {"_id":"6016e31786ae8c98ba825c2d","unit":"Simulated","status":"in_use","user":"gabor.simon75@gmail.com","time":1612118833}
                     if (u.unit in tmpunits) {
-                        let tu = tmpunits[u.unit];
-                        nu[u.unit] = {
-                            ...nu[u.unit],
-                            nonce: tu.nonce,
-                            time: tu.time,
-                            loc: tu.loc,
-                            azi: tu.azi,
-                            spd: tu.spd,
-                            spdt: tu.spd ? (tu.spd * 3.6).toFixed(1) : 0,
-                            bat: tu.bat,
-                        };
+                        tmpunits[u.unit].status_time = u.time;
+                        tmpunits[u.unit].status = u.status;
+                        tmpunits[u.unit].user = u.user;
                     }
                 }
-                console.log("units=" + JSON.stringify(nu));
-                this.units = nu;
+                // FIXME: merge battery and startup info in a similar manner
+            }).then(() => {
+                console.log("units=" + JSON.stringify(tmpunits));
+                this.units = tmpunits;
             });
         },
-        unit_changed: function (u) {
-            // only positional change, reported by the unit itself - see the 'traces' collection in the db
-            // LATER: the administrative change (status, status_time, user) will come from customer client app - not yet operational 
+        unit_location_changed: function (u) {
+            console.log("Updating unit " + JSON.stringify(u));
             this.$set(this.units, u.unit, {
                 ...this.units[u.unit],
-                nonce: u.nonce,
-                time: u.time,
+                location_time: u.time,
                 loc: latLng(u.lat, u.lon),
                 spd: u.spd,
                 spdt: (u.spd * 3.6).toFixed(1),
@@ -218,7 +202,7 @@ export default {
         if (this.$store.state.auth.sign_in_ready) {
             this.fetch_locations();
         }
-        EventBus.$on("unit", this.unit_changed);
+        EventBus.$on("unit_location", this.unit_location_changed);
     },
     beforeDestroy: function () {
         this.$store.state.app_bar_info = "..."
