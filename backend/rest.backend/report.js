@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require("../database");
 const logger = require("../logger").getLogger("report");
 const utils = require("../utils");
+const events = require("../events");
 
 const re_extract_cn = /\bCN=([^,]*)/i;
 
@@ -18,6 +19,7 @@ function op_insert(req) {
     let record = { ...req.body, unit: unit_cn[1] };
     logger.debug("op_insert(" + JSON.stringify(record) + ")");
 
+    events.admin_event_emitter.emit("sendit", "unit", record);
     return db.traces().insertOne(record).then(() => null);
 }
 
