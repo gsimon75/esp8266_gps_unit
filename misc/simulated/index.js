@@ -3,7 +3,6 @@ const parse = require("xml-parser");
 const https = require("https");
 const axios = require("axios");
 
-const unit_name = "Simulated";
 const unit_nonce = 42;
 const gpx_file = "gpx/20200930-173651.gpx";
 // /const gpx_file = "gpx/test.gpx";
@@ -93,14 +92,19 @@ async function main() {
     }
     // track.forEach(t => { console.log(JSON.stringify(t)); });
 
+    await ax.post("https://backend.wodeewa.com/v0/startup", {nonce: unit_nonce}).then(result => {
+        console.log("result=" + result.status + ", body='" + result.data + "'");
+    }).catch(error => {
+        console.error("error=" + error.response.status + ", body='" + error.response.data + "'");
+    });
+
     let idx = 0; // index of the track point last passed
     while (true) {
         let sleep = new Promise(r => setTimeout(r, report_interval)); // let it run while we're doing our things
 
-        // current time
-        let now = Math.round(new Date().getTime() / 1000);
+        let now_msec = new Date().getTime();
         // current time, folded down to track-time
-        let tnow = Math.round(new Date().getTime() / 1000) % T;
+        let tnow = Math.round(now_msec / 1000) % T;
         // find the appropriate track step, most probably the current one or the next, but don't take it granted (like at wrap-around)
         while (!( (track[idx].time <= tnow) && (tnow < track[idx + 1].time)) ) {
             idx = (idx + 1) % N;
@@ -108,14 +112,11 @@ async function main() {
         // interpolate between the passed and the upcoming points
         let p = (tnow - track[idx].time) / (track[idx + 1].time - track[idx].time);
         let sim = {
-            unit: unit_name,
-            nonce: unit_nonce,
-            time: now,
             lat: p * track[idx].lat + (1 - p) * track[idx + 1].lat,
             lon: p * track[idx].lon + (1 - p) * track[idx + 1].lon,
             spd: p * track[idx].spd + (1 - p) * track[idx + 1].spd,
-            azi: 0,
-            bat: 2987,
+            azi: 0, // TODO: fake from surrounding points' lat and lng
+            bat: 2900 + (now_msec % 200),
         };
         console.log(JSON.stringify(sim));
         ax.post("https://backend.wodeewa.com/v0/report", sim).then(result => {
