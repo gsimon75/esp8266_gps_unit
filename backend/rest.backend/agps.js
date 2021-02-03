@@ -5,8 +5,6 @@ const db = require("../database");
 const logger = require("../logger").getLogger("agps");
 const utils = require("../utils");
 
-const re_extract_cn = /\bCN=([^,]*)/i;
-
 const agps_data = fs.readFileSync("./ota/agps.dat");
 
 function op_get(req, res) {

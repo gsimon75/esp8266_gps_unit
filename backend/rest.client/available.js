@@ -7,14 +7,14 @@ const utils = require("../utils");
 
 function op_get_all(req) {
     logger.debug("op_get_all()");
-    return db.cursor_all(db.traces().find());
+    return db.cursor_all(db.unit_status().find());
 }
 
 
 function op_get(req) {
     const id = req.params.id;
     logger.debug("op_get(" + id + ")");
-    return db.traces().findOne({unit: id});
+    return db.unit_status().findOne({unit: id});
 }
 
 
