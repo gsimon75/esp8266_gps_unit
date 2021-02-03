@@ -23,6 +23,16 @@
                 </l-marker>
             </template>
             </v-marker-cluster>
+
+            <v-marker-cluster :options="{iconCreateFunction: function (c) { return unit_cluster_icon(c); } }">
+            <template v-for="(u, name) in units">
+                <l-marker v-if="u.loc" :lat-lng="u.loc" :key="name" :icon="icon_unit">
+                    <l-tooltip :options="{ permanent: true }">
+                    {{ name }}<br>{{ u.spdt }} kph
+                    </l-tooltip>
+                </l-marker>
+            </template>
+            </v-marker-cluster>
         </l-map>
 
     </div>
@@ -65,6 +75,15 @@ const icon_biking = L.icon({
     iconAnchor: [ 26, 41 ],
 });
 
+const icon_unit = L.icon({
+    iconUrl: require("../assets/unit-icon.png"),
+    shadowUrl: require("../assets/unit-shadow.png"),
+    iconRetinaUrl: require("../assets/unit-icon-2x.png"),
+    iconSize: [ 25, 41 ],
+    shadowSize: [ 25, 41 ],
+    iconAnchor: [ 13, 41 ],
+});
+
 export default {
     name: "SiteMap",
     components: {
@@ -83,12 +102,14 @@ export default {
             currentCenter: latLng(25.0, 55.0),
             currentZoom: 17,
             icon_biking,
+            icon_unit,
             mapOptions: {
                 zoomSnap: 0.5
             },
             centering_in_progress: true,
             center_timer: null,
             stations: [],
+            units: {},
         };
     },
     methods: {
@@ -107,10 +128,13 @@ export default {
         style_extractor: function (feature) {
             return feature.properties;
         },
-        fetch_stations: function (x) {
-            console.log("SiteMap got signed-in, x=" + JSON.stringify(x));
+        unit_cluster_icon: function (cluster) {
+            var childCount = cluster.getChildCount();
+            return new L.DivIcon({ html: "<div><span>" + childCount + "</span></div>", className: "marker-cluster unit-cluster", iconSize: new L.Point(40, 40) });
+        },
+        fetch_locations: function () {
             this.$store.state.ax.get("/v0/station").then(response => {
-                // sts.status == 200
+                // response.status == 200
                 var newstations = [];
                 for (var st of response.data) {
                     // {"_id":"6016822fcbe5bf1db53ae6c2","id":3825891566,"lat":25.1850197,"lon":55.2652917,"name":"The Health Spot Cafe","capacity":14,"in_use":0}
@@ -123,7 +147,65 @@ export default {
                 }
                 this.stations = newstations;
             });
+            var tmpunits = {}
+            this.$store.state.ax.get("/v0/unit/trace").then(response => {
+                // response.status == 200
+                for (var u of response.data) {
+                    // {"_id":"600ee41459fa9c4248ea72cb","unit":"gps_unit_0","nonce":655651705,"time":1611588627,"lat":25.0458,"lon":55.2457,"azi":0,"spd":0,"bat":1974}
+                    tmpunits[u.unit] = {
+                        unit: u.unit,
+                        nonce: u.nonce,
+                        time: u.time,
+                        loc: ((u.lat !== undefined) && (u.lon !== undefined)) ? latLng(u.lat, u.lon) : false,
+                        azi: u.azi,
+                        spd: u.spd,
+                        bat: u.bat,
+                    };
+                }
+                return this.$store.state.ax.get("/v0/unit/status");
+            }).then(response => {
+                // response.status == 200
+                let nu = {}
+                for (var u of response.data) {
+                    // {"_id":"6016e31786ae8c98ba825c2d","unit":"Simulated","nonce":null,"status":"in_use","user":"gabor.simon75@gmail.com","time":1612118833}
+                    nu[u.unit] = {
+                        unit: u.unit,
+                        status_time: u.time,
+                        status: u.status,
+                        user: u.user
+                    };
+                    if (u.unit in tmpunits) {
+                        let tu = tmpunits[u.unit];
+                        nu[u.unit] = {
+                            ...nu[u.unit],
+                            nonce: tu.nonce,
+                            time: tu.time,
+                            loc: tu.loc,
+                            azi: tu.azi,
+                            spd: tu.spd,
+                            spdt: tu.spd ? (tu.spd * 3.6).toFixed(1) : 0,
+                            bat: tu.bat,
+                        };
+                    }
+                }
+                console.log("units=" + JSON.stringify(nu));
+                this.units = nu;
+            });
         },
+        unit_changed: function (u) {
+            // only positional change, reported by the unit itself - see the 'traces' collection in the db
+            // LATER: the administrative change (status, status_time, user) will come from customer client app - not yet operational 
+            this.$set(this.units, u.unit, {
+                ...this.units[u.unit],
+                nonce: u.nonce,
+                time: u.time,
+                loc: latLng(u.lat, u.lon),
+                spd: u.spd,
+                spdt: (u.spd * 3.6).toFixed(1),
+                azi: u.azi,
+                bat: u.bat,
+            });
+        }
     },
     created: function() {
         console.log("SiteMap created");
@@ -132,7 +214,11 @@ export default {
             console.log("Not signed in, proceed to sign-in");
             this.$router.push("/signin");
         }
-        EventBus.$on("signed-in", this.fetch_stations);
+        EventBus.$on("signed-in", this.fetch_locations);
+        if (this.$store.state.auth.sign_in_ready) {
+            this.fetch_locations();
+        }
+        EventBus.$on("unit", this.unit_changed);
     },
     beforeDestroy: function () {
         this.$store.state.app_bar_info = "..."
@@ -142,6 +228,16 @@ export default {
 
 <style lang="scss">
 @import "~vuetify/src/styles/main.sass";
+
+.unit-cluster {
+        background-color: #fe4;
+}
+
+.unit-cluster div {
+        background-color: #e10;
+        color: #fff;
+        font-size: 1.5em;
+}
 
 </style>
 

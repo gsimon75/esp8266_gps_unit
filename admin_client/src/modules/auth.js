@@ -36,6 +36,7 @@ export default {
         id_token: "",
         provider_id: "",
         uid: "",
+        sign_in_ready: false,
     },
     getters: {
         auth(state, getters, rootState) { // eslint-disable-line no-unused-vars
@@ -55,6 +56,9 @@ export default {
             state.provider_id = x.provider_id;
             state.uid = x.uid;
         },
+        sign_in_done(state) {
+            state.sign_in_ready = true;
+        },
         logged_out(state) {
             console.log("Signed out");
             state.name = "Anonymous";
@@ -63,6 +67,7 @@ export default {
             state.id_token = "";
             state.provider_id = "";
             state.uid = "";
+            state.sign_in_ready = false;
         },
     },
     actions: {
@@ -132,32 +137,24 @@ export default {
                 console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
 
                 // ==============================================================================
-                // TODO: set up websocket
-
-                /*
-                const ws = new WebSocket("wss://admin.wodeewa.com/v0/echo");
-
-                ws.on("open", function open() {
-                    console.log("ws opened, sending data");
-                    ws.send("something");
-                });
-
-                ws.on("message", function incoming(data) {
-                    console.log("ws incoming message: " + JSON.stringify(data));
-                });
-                */
-                var source = new EventSource("/v0/echo");
+                var source = new EventSource("/v0/event");
                 source.addEventListener("message", event => {
                     console.log("sse incoming message: " + event.data);
                 }, false);
+                source.addEventListener("unit", event => {
+                    console.log("sse incoming unit: " + event.data);
+                    EventBus.$emit("unit", JSON.parse(event.data));
+                }, false);
+                source.addEventListener("station", event => {
+                    console.log("sse incoming station: " + event.data);
+                }, false);
                 source.addEventListener("end", event => {
                     console.log("sse wants to close the connection: " + event.data);
+                    source.close();
                 }, false);
-                /*source.onmessage = function (event) {
-                    console.log("sse incoming message: " + event.data);
-                };*/
                 // ==============================================================================
 
+                context.commit("sign_in_done");
                 EventBus.$emit("signed-in", { yadda: 42 });
             }).catch(err => {
                 console.log("Failed to sign in to backend: " + err);
