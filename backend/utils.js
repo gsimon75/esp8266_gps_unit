@@ -46,7 +46,6 @@ function mwrap(req, res, next, handler) {
     }
 
     promise.then(response => {
-        logger.debug("response = " + JSON.stringify(response));
         if (response === undefined) {
             next();
         }
@@ -54,9 +53,11 @@ function mwrap(req, res, next, handler) {
             res.status(204).end();
         }
         else if (response instanceof Buffer) {
+            logger.debug("response = " + JSON.stringify(response));
             res.status(200).send(response);
         }
         else {
+            logger.debug("response = " + JSON.stringify(response));
             res.status(200).json(response);
         }
     }).catch(err => {

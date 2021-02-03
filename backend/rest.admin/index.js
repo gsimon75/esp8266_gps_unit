@@ -3,13 +3,9 @@ const router = express.Router();
 const db = require("../database");
 const logger = require("../logger").getLogger("admin");
 const utils = require("../utils");
-const EventEmitter = require("events");
+const events = require("../events");
 
 const fba = require("firebase-admin");
-
-class AdminEventEmitter extends EventEmitter {}
-
-const admin_event_emitter = new AdminEventEmitter();
 
 function op_healthz(req) {
     logger.debug("GET healthz");
@@ -88,7 +84,7 @@ router.use("/station", require("./station"));
 
 // FIXME: for testing: send FCM data msgs periodically (this will be done on data changes)
 /*
-router.ws("/echo", function(ws, req) {
+router.ws("/event", function(ws, req) {
     logger.debug("Incoming req: " + JSON.stringify(req));
     ws.on("message", function(msg) {
         logger.debug("Incoming msg: " + JSON.stringify(msg));
@@ -97,8 +93,8 @@ router.ws("/echo", function(ws, req) {
 });
 */
 
-router.get("/echo", (req, res) => {
-    logger.debug("echo for " + req.session.email + ": start");
+router.get("/event", (req, res) => {
+    logger.debug("event for " + req.session.email + ": start");
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -107,7 +103,7 @@ router.get("/echo", (req, res) => {
     res.flushHeaders(); // flush the headers to establish SSE with client
 
     let handler = (etype, data) => {
-        logger.debug("echo for " + req.session.email + ": got data to send, etype=" + etype + ", data=" + JSON.stringify(data));
+        logger.debug("event for " + req.session.email + ": got data to send, etype=" + etype + ", data=" + JSON.stringify(data));
         setImmediate(() => {
             if (etype !== null) {
                 res.write("event: " + etype + "\ndata: " + JSON.stringify(data) + "\n\n");
@@ -118,21 +114,21 @@ router.get("/echo", (req, res) => {
             }
         });
         if (etype == null) {
-            admin_event_emitter.removeListener("sendit", handler);
+            events.admin_event_emitter.removeListener("sendit", handler);
         }
     };
 
-    admin_event_emitter.addListener("sendit", handler);
+    events.admin_event_emitter.addListener("sendit", handler);
 
     // If client closes connection, stop sending events
     res.on("close", () => {
-        logger.debug("echo for " + req.session.email + ": client dropped me");
-        admin_event_emitter.removeListener("sendit", handler);
+        logger.debug("event for " + req.session.email + ": client dropped me");
+        events.admin_event_emitter.removeListener("sendit", handler);
         res.end();
     });
 });
 
-
+/*
 var fake_msg_seq = 0;
 function send_fake_msg() {
     logger.debug("send_fake_msg() seq=" + fake_msg_seq);
@@ -142,9 +138,10 @@ function send_fake_msg() {
         s4_seq: fake_msg_seq++,
         s4_timestamp: new Date(),
     };
-    admin_event_emitter.emit("sendit", "message", message);
+    events.admin_event_emitter.emit("sendit", "message", message);
 }
 var fake_msg_timer = setInterval(send_fake_msg, 5 * 1000);
+*/
 
 module.exports = router;
 
