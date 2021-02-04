@@ -4,7 +4,7 @@
 #include <esp_system.h>
 #include <esp_log.h>
 
-//#define USE_AGPS
+#define USE_AGPS
 
 typedef enum {
     GPS_INIT,   // no answer yet, (re)init in progress

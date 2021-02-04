@@ -232,7 +232,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
         goto error;
     }
 
-    bool connected = https_connect(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT);
+    bool connected = https_connect(&ctx, DATA_SERVER_NAME, DATA_SERVER_PORT); // needed for parsing the client cert
 
     {
         // try to find the CN (oid=2.5.4.3, [ 0x55, 0x04, 0x03 ]) from the subject DN
@@ -319,9 +319,9 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
             else if ((200 <= status) && (status < 300)) {
                 // success, done
                 ESP_LOGI(TAG, "Got AGPS data, len=%u", ctx.content_length);
-                //if (agps_data) {
-                //    gps_add_agps(agps_data, ctx.content_length);
-                //}
+                if (agps_data) {
+                    gps_add_agps(agps_data, ctx.content_length);
+                }
             }
             else if ((400 <= status) && (status < 600)) {
                 ESP_LOGE(TAG, "AGPS data refused: %d", status);
@@ -358,12 +358,14 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
 
         time_t tt;
         time(&tt);
-        bool do_send = time_trshld && ((last_time + time_trshld) < tt);
         bodylen = 0;
+        bool do_send = time_trshld && ((last_time + time_trshld) < tt);
+        if (!do_send) {
+            ESP_LOGD(TAG, "Time trshld not reached, last_time=%lu, time_trshld=%u, tt=%lu", last_time, time_trshld, tt);
+        }
         if (uxBits & GOT_GPS_FIX_BIT) {
             // check if the time limit is exceeded
             if (!do_send) {
-                ESP_LOGD(TAG, "Time trshld not reached, last_time=%lu, time_trshld=%u, tt=%lu", last_time, time_trshld, tt);
                 // check if the distance is more than the threshold
                 // NOTE: not the correct formula (https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas)
                 // but only an approximation

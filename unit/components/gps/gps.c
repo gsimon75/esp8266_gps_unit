@@ -761,12 +761,11 @@ gps_start(void) {
 
 esp_err_t
 gps_add_agps(const uint8_t *data, size_t datalen) {
-    // NOTE: this is broken/unfinished, don't use it!
+    // NOTE: this is called from the lrep task
     ESP_LOGI(TAG, "Processing AGPS data %d bytes", datalen);
 
 #ifdef USE_AGPS
     // split data into UBX command list, only validate and count the commands first
-    unsigned int num_agps_cmds = 0;
     const uint8_t *rd = data, *end = data + datalen;
     while (rd < end) {
         if (end < (rd + 8)) {
@@ -782,27 +781,13 @@ gps_add_agps(const uint8_t *data, size_t datalen) {
             ESP_LOGE(TAG, "Incomplete UBX message at the end of AGPS data, offset=%u", rd - data);
             return ESP_FAIL;
         }
-        ++num_agps_cmds;
+
+        send_ubx(rd, TIMEOUT_SEND_CMD_MS);
+        vTaskDelay(pdMS_TO_TICKS(500));
+
         rd += 8 + m_len;
     }
-    ESP_LOGI(TAG, "AGPS data valid, messages=%u", num_agps_cmds);
-
-    const uint8_t ** agps_cmds = (const uint8_t**)malloc((num_agps_cmds + 1) * sizeof(const uint8_t*));
-    if (!agps_cmds) {
-        ESP_LOGE(TAG, "Out of memory");
-        return ESP_FAIL;
-    }
-
-    // traverse the list again, now store pointers into agps_cmds
-    rd = data;
-    for (int i = 0; i < num_agps_cmds; ++i) {
-        // the message list structure has already been validated
-        agps_cmds[i] = rd;
-        rd += 8 + le16dec(rd + 4);
-    }
-    agps_cmds[num_agps_cmds] = NULL;
-
-    // TODO: start sending the commands and wait for finish (the ack of one message will send the next one)
+    ESP_LOGI(TAG, "AGPS data sent");
 #endif // USE_AGPS
     return ESP_OK;
 }
