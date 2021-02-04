@@ -17,8 +17,13 @@ function got_agps(type, svid, message) {
     }
     
     agps_cache[type][svid] = Buffer.from(message);
-    loggger.info("Updated AGPS " + type + " for svid=" + svid + ", length=" + message.length);
+    logger.info("Updated AGPS " + type + " for svid=" + svid + ", length=" + agps_cache[type][svid].length);
 }
+
+
+const GPSTIME_START = 315964800; // unix timestamp of 1980-01-06T00:00:00Z
+const SECONDS_IN_A_WEEK = 7 * 24 * 60 * 60;
+const UBX_MAGIC = new Uint8Array([0xb5, 0x62]);
 
 
 function ubx_message(m_class, m_id, payload) {
@@ -41,8 +46,6 @@ function ubx_message(m_class, m_id, payload) {
     return buffer;
 }
 
-const GPSTIME_START = 315964800; // unix timestamp of 1980-01-06T00:00:00Z
-const SECONDS_IN_A_WEEK = 7 * 24 * 60 * 60;
 
 function AID_INI(lat, lon, posAcc_m, time) {
     // time: seconds since unix epoch 1970-01-01T00:00:00Z
@@ -68,7 +71,7 @@ function AID_INI(lat, lon, posAcc_m, time) {
 
 function update_agps(req, res) {
     logger.debug("update_agps()");
-    got_agps(req.body.type, req.body.svid. req.body.message);
+    got_agps(req.body.type, req.body.svid, req.body.message);
     return null;
 }
 
@@ -78,8 +81,8 @@ function get_agps(req, res) {
         AID_INI(25.0, 55.2, 50000, now),
     ];
 
-    for (ley type of ["EPH", "ALM"]) {
-        if (agps[type]) {
+    for (let type of ["EPH", "ALM"]) {
+        if (agps_cache[type]) {
             for (let i = 1; i <= 32; i++) {
                 if (agps_cache[type][i]) {
                     msgs.push(agps_cache[type][i]);
