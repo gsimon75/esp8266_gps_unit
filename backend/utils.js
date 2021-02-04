@@ -53,7 +53,7 @@ function mwrap(req, res, next, handler) {
             res.status(204).end();
         }
         else if (response instanceof Buffer) {
-            logger.debug("response = " + JSON.stringify(response));
+            logger.debug("response = Buffer, length=" + response.length);
             res.status(200).send(response);
         }
         else {
