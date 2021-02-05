@@ -5,20 +5,20 @@
             :zoom="currentZoom"
             :center="currentCenter"
             :options="mapOptions"
-            :noBlockingAnimations="false"
+            :noBlockingAnimations="true"
             style="height: 100%"
             @update:center="centerUpdate"
             @update:zoom="zoomUpdate"
             @dragstart="user_drag"
         >
             <l-control-scale position="topright" :imperial="false" :metric="true"/>
-            <l-tile-layer :url="tile_url" :attribution="tile_attribution"/>
+            <l-tile-layer :url="tile_url" :options="tileLayerOptions"/>
 
             <v-marker-cluster>
-            <template v-for="st in stations">
-                <l-marker :lat-lng="st.loc" :key="st.id">
+            <template v-for="(st, name) in stations">
+                <l-marker :lat-lng="st.loc" :key="st.id" @click="station_clicked(name)">
                     <l-tooltip :options="{ permanent: true }">
-                    {{ st.name }}
+                    {{ name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
                     </l-tooltip>
                 </l-marker>
             </template>
@@ -26,7 +26,7 @@
 
             <v-marker-cluster :options="{iconCreateFunction: function (c) { return unit_cluster_icon(c); } }">
             <template v-for="(u, name) in units">
-                <l-marker v-if="u.loc" :lat-lng="u.loc" :key="name" :icon="icon_unit">
+                <l-marker v-if="u.loc" :lat-lng="u.loc" :key="name" :icon="icon_unit" @click="unit_clicked(name)">
                     <l-tooltip :options="{ permanent: true }">
                     {{ name }}<br>{{ u.spdt }} kph
                     </l-tooltip>
@@ -34,6 +34,115 @@
             </template>
             </v-marker-cluster>
         </l-map>
+
+        <!--
+        Dialog for station details
+        -->
+        <v-dialog v-model="showing_station_details" max-width="90vw" modal>
+            <v-card v-if="!!selected_station">
+                <v-card-title class="text-h4">
+                    {{ selected_station.name }}
+                </v-card-title>
+
+                <v-list-item two-line>
+                    <v-list-item-content>
+                        <v-list-item-title>Location</v-list-item-title>
+                        <v-list-item-subtitle>{{ loc2str(selected_station.loc) }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item two-line>
+                    <v-list-item-content>
+                        <v-list-item-title>Capacity</v-list-item-title>
+                        <v-list-item-subtitle>{{ selected_station.capacity }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item two-line>
+                    <v-list-item-content>
+                        <v-list-item-title>Available units</v-list-item-title>
+                        <v-list-item-subtitle>{{ selected_station.ready }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item two-line>
+                    <v-list-item-content>
+                        <v-list-item-title>Charging units</v-list-item-title>
+                        <v-list-item-subtitle>{{ selected_station.charging }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item two-line>
+                    <v-list-item-content>
+                        <v-list-item-title>Free space</v-list-item-title>
+                        <v-list-item-subtitle>{{ selected_station.free }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item>
+                    <v-list-item-content justify="center">
+                        <v-btn color="error" @click="showing_station_details = false;" rounded>Close</v-btn>
+                    </v-list-item-content>
+                </v-list-item>
+
+            </v-card>
+        </v-dialog>
+
+        <!--
+        Dialog for unit details
+        -->
+        <v-dialog v-model="showing_unit_details" max-width="90vw" modal>
+            <v-card v-if="!!selected_unit">
+                <v-card-title class="text-h4">
+                    {{ selected_unit.unit }}
+                </v-card-title>
+
+                <v-list-item two-line>
+                    <v-list-item-content>
+                        <v-list-item-title>Location</v-list-item-title>
+                        <v-list-item-subtitle>{{ loc2str(selected_unit.loc) }}</v-list-item-subtitle>
+                        <v-list-item-subtitle>at {{ new Date(1000 * selected_unit.location_time).toLocaleString() }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item two-line>
+                    <v-list-item-content>
+                        <v-list-item-title>Speed</v-list-item-title>
+                        <v-list-item-subtitle>{{ selected_unit.spdt }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item two-line>
+                    <v-list-item-content>
+                        <v-list-item-title>Battery</v-list-item-title>
+                        <v-list-item-subtitle>{{ selected_unit.bat }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item two-line v-if="selected_unit.status == 'in_use'">
+                    <v-list-item-content>
+                        <v-list-item-title>In use by</v-list-item-title>
+                        <v-list-item-subtitle>{{ selected_unit.user }}</v-list-item-subtitle>
+                        <v-list-item-subtitle>at {{ new Date(1000 * selected_unit.status_time).toLocaleString() }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+                <v-list-item two-line v-else>
+                    <v-list-item-content>
+                        <v-list-item-title>Status</v-list-item-title>
+                        <v-list-item-subtitle>{{ selected_unit.status }}</v-list-item-subtitle>
+                        <v-list-item-subtitle>at {{ new Date(1000 * selected_unit.status_time).toLocaleString() }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
+
+
+                <v-list-item>
+                    <v-list-item-content justify="center">
+                        <v-btn color="error" @click="showing_unit_details = false;" rounded>Close</v-btn>
+                    </v-list-item-content>
+                </v-list-item>
+
+            </v-card>
+        </v-dialog>
 
     </div>
 </template>
@@ -57,7 +166,7 @@ import Vue2LeafletMarkerCluster from "vue2-leaflet-markercluster";
    The issue has already been dealt with: https://github.com/vue-leaflet/Vue2Leaflet/issues/613
    */
 
-import { Icon, latLng } from "leaflet";
+import { Icon, latLng, latLngBounds } from "leaflet";
 
 delete Icon.Default.prototype._getIconUrl;
 Icon.Default.mergeOptions({
@@ -96,8 +205,17 @@ export default {
     },
     data () {
         return {
-            tile_url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            tile_attribution: "&copy; <a href=\"http://osm.org/copyright\">OpenStreetMap</a> contributors",
+            //tile_url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            //tile_attribution: "&copy; <a href=\"http://osm.org/copyright\">OpenStreetMap</a> contributors",
+            tile_url: "https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}",
+            tileLayerOptions: {
+                attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+                maxZoom: 18,
+                zoomOffset: -1,
+                id: "mapbox/streets-v11",
+                tileSize: 512,
+                accessToken: "pk.eyJ1IjoiZ3NpbW9uNzUiLCJhIjoiY2trc2xuczl3MGVwNzJ2cGx0bDdlZnRoNCJ9.ZGCgtuQhE9AaNvxHaAYD6w",
+            },
             map: false,
             currentCenter: latLng(25.0, 55.0),
             currentZoom: 17,
@@ -110,6 +228,11 @@ export default {
             center_timer: null,
             stations: [],
             units: {},
+
+            showing_unit_details: false,
+            selected_unit: null,
+            showing_station_details: false,
+            selected_station: null,
         };
     },
     methods: {
@@ -132,10 +255,14 @@ export default {
             var childCount = cluster.getChildCount();
             return new L.DivIcon({ html: "<div><span>" + childCount + "</span></div>", className: "marker-cluster unit-cluster", iconSize: new L.Point(40, 40) });
         },
+        loc2str: function (loc) {
+            return "(" + loc.lat.toFixed(4) + ", " + loc.lng.toFixed(4) + ")";
+        },
         fetch_locations: function () {
+            console.log("Fetching location data");
             this.$store.state.ax.get("/v0/station").then(response => {
                 // response.status == 200
-                var newstations = [];
+                var newstations = {}
                 for (var st of response.data) {
                     // {"_id":"6016822fcbe5bf1db53ae6c2","id":3825891566,"lat":25.1850197,"lon":55.2652917,"name":"The Health Spot Cafe","capacity":14,"in_use":0}
                     delete st._id;
@@ -143,19 +270,23 @@ export default {
                     st.ready = st.in_use;
                     st.charging = 0; // TODO: distinguish charging vs. ready
                     st.loc = latLng(st.lat, st.lon);
-                    newstations.push(st);
+                    newstations[st.name] = st;
                 }
                 this.stations = newstations;
             });
-            var tmpunits = {}
+
+            let tmpunits = {}
+            let bounds = latLngBounds([]);
             this.$store.state.ax.get("/v0/unit/trace").then(response => {
                 // response.status == 200
                 for (var u of response.data) {
                     // {"_id":"600ee41459fa9c4248ea72cb","unit":"gps_unit_0","time":1611588627,"lat":25.0458,"lon":55.2457,"azi":0,"spd":0}
+                    let loc = latLng(u.lat, u.lon);
+                    bounds.extend(loc);
                     tmpunits[u.unit] = {
                         unit: u.unit,
                         location_time: u.time,
-                        loc: latLng(u.lat, u.lon),
+                        loc,
                         azi: u.azi,
                         spd: u.spd,
                         spdt: (u.spd * 3.6).toFixed(1),
@@ -175,11 +306,15 @@ export default {
                 // FIXME: merge battery and startup info in a similar manner
             }).then(() => {
                 console.log("units=" + JSON.stringify(tmpunits));
+                this.map.fitBounds(bounds, {});
                 this.units = tmpunits;
             });
+
+            // FIXME: fetch unit battery levels
         },
+
         unit_location_changed: function (u) {
-            console.log("Updating unit " + JSON.stringify(u));
+            console.log("Updating unit location " + JSON.stringify(u));
             this.$set(this.units, u.unit, {
                 ...this.units[u.unit],
                 location_time: u.time,
@@ -187,9 +322,34 @@ export default {
                 spd: u.spd,
                 spdt: (u.spd * 3.6).toFixed(1),
                 azi: u.azi,
+            });
+        },
+        unit_battery_changed: function (u) {
+            console.log("Updating unit battery " + JSON.stringify(u));
+            this.$set(this.units, u.unit, {
+                ...this.units[u.unit],
+                battery_time: u.time,
                 bat: u.bat,
             });
-        }
+        },
+        unit_status_changed: function (u) {
+            console.log("Updating unit status " + JSON.stringify(u));
+            this.$set(this.units, u.unit, {
+                ...this.units[u.unit],
+                status_time: u.time,
+                status: u.status,
+                user: u.user,
+            });
+        },
+
+        station_clicked: function (st) {
+            this.selected_station = this.stations[st];
+            this.showing_station_details = true;
+        },
+        unit_clicked: function (u) {
+            this.selected_unit = this.units[u];
+            this.showing_unit_details = true;
+        },
     },
     created: function() {
         console.log("SiteMap created");
@@ -203,6 +363,9 @@ export default {
             this.fetch_locations();
         }
         EventBus.$on("unit_location", this.unit_location_changed);
+        EventBus.$on("unit_battery", this.unit_battery_changed);
+        EventBus.$on("unit_status", this.unit_status_changed);
+        this.$store.state.app_bar_info = "Stations & Units";
     },
     beforeDestroy: function () {
         this.$store.state.app_bar_info = "..."
