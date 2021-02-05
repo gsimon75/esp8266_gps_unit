@@ -5,26 +5,9 @@ const db = require("../database");
 const logger = require("../logger").getLogger("agps");
 const utils = require("../utils");
 
-let agps_cache = {
-};
-
-function got_agps(type, svid, message) {
-    if (!agps_cache[type]) {
-        agps_cache[type] = { };
-    }
-    if (agps_cache[type][svid] && (agps_cache[type][svid].compare(message) == 0)) {
-        return;
-    }
-    
-    agps_cache[type][svid] = Buffer.from(message);
-    logger.info("Updated AGPS " + type + " for svid=" + svid + ", length=" + agps_cache[type][svid].length);
-}
-
-
 const GPSTIME_START = 315964800; // unix timestamp of 1980-01-06T00:00:00Z
 const SECONDS_IN_A_WEEK = 7 * 24 * 60 * 60;
 const UBX_MAGIC = new Uint8Array([0xb5, 0x62]);
-
 
 function ubx_message(m_class, m_id, payload) {
     let buffer = Buffer.alloc(8 + payload.length);
@@ -47,54 +30,56 @@ function ubx_message(m_class, m_id, payload) {
 }
 
 
-function AID_INI(lat, lon, posAcc_m, time) {
+function AID_INI() {
     // time: seconds since unix epoch 1970-01-01T00:00:00Z
-    let gnow = time - GPSTIME_START;
+    let gnow = Math.round(new Date().getTime() / 1000)- GPSTIME_START;
     let payload = Buffer.alloc(48);
 
-    payload.writeInt32LE(Math.round(1e7 * lat), 0);                  // .lat, deg*1e-7
-    payload.writeInt32LE(Math.round(1e7 * lon), 4);                  // .lon, deg*1e-7
-    payload.writeInt32LE(0, 8);                                      // .alt, cm
-    payload.writeUInt32LE(posAcc_m * 100, 12);                       // .posAcc, cm
-    payload.writeUInt16LE(0x01, 16);                                 // .tmCfg
-    payload.writeUInt16LE(gnow / SECONDS_IN_A_WEEK, 18);             // .wn 
-    payload.writeUInt32LE(1000 * (gnow % SECONDS_IN_A_WEEK), 20);    // .tow, ms
-    payload.writeInt32LE(0, 24);                                     // .towNs, ns
-    payload.writeUInt32LE(10000, 28);                                // .tAccMs, ms
-    payload.writeUInt32LE(0, 32);                                    // .tAccNs, ns
-    payload.writeInt32LE(0, 36);                                     // .clkD
-    payload.writeUInt32LE(0, 40);                                    // .clkDAcc
-    payload.writeUInt32LE(0x3b, 44);                                 // .flags, 0x3b = altInv + lla + tp + time + pos
+    payload.writeInt32LE(0, 0);                                     // .lat, deg*1e-7
+    payload.writeInt32LE(0, 4);                                     // .lon, deg*1e-7
+    payload.writeInt32LE(0, 8);                                     // .alt, cm
+    payload.writeUInt32LE(0, 12);                                   // .posAcc, cm
+    payload.writeUInt16LE(0x01, 16);                                // .tmCfg
+    payload.writeUInt16LE(gnow / SECONDS_IN_A_WEEK, 18);            // .wn 
+    payload.writeUInt32LE(1000 * (gnow % SECONDS_IN_A_WEEK), 20);   // .tow, ms
+    payload.writeInt32LE(0, 24);                                    // .towNs, ns
+    payload.writeUInt32LE(10000, 28);                               // .tAccMs, ms
+    payload.writeUInt32LE(0, 32);                                   // .tAccNs, ns
+    payload.writeInt32LE(0, 36);                                    // .clkD
+    payload.writeUInt32LE(0, 40);                                   // .clkDAcc
+    payload.writeUInt32LE(0x0a, 44);                                // .flags, 0x0a = tp + time
 
     return ubx_message(0x0b, 0x01, payload);
 }
 
 function update_agps(req, res) {
-    logger.debug("update_agps()");
-    got_agps(req.body.type, req.body.svid, req.body.message);
-    return null;
+    let message = Buffer.from(req.body.message);
+    logger.debug("update_agps(): type=" + req.body.type + ", svid=" + req.body.svid + ", length=" + message.length);
+    return db.agps().updateOne({
+        type: req.body.type,
+        svid: req.body.svid,
+    }, {
+        $set: {
+            message,
+        },
+    }, {
+        upsert: true,
+    }).then(() => null);
 }
 
 function get_agps(req, res) {
-    let now = Math.round(new Date().getTime() / 1000);
     let msgs = [
-        AID_INI(25.0, 55.2, 50000, now),
+        AID_INI(),
     ];
 
-    for (let type of ["EPH", "ALM"]) {
-        if (agps_cache[type]) {
-            for (let i = 1; i <= 32; i++) {
-                if (agps_cache[type][i]) {
-                    msgs.push(agps_cache[type][i]);
-                }
-            }
-        }
-    }
-    let result =  Buffer.concat(msgs);
-
-    res.set("Content-Type", "application/ubx"); // this is how the u-blox servers send it too
-    logger.debug("get_agps(), length=" + result.length);
-    return result
+    return db.agps().find({}).forEach(m => { 
+        msgs.push(Buffer.from(m.message.buffer));
+    }).then(() => {
+        let result =  Buffer.concat(msgs);
+        logger.debug("get_agps(), length=" + result.length);
+        res.set("Content-Type", "application/ubx"); // this is how the u-blox servers send it too
+        return result;
+    });
 }
 
 router.post("/",               (req, res, next) => utils.mwrap(req, res, next, () => update_agps(req, res)));

@@ -107,10 +107,10 @@ function op_get_trace(req) {
  * Endpoint: GET /unit/trace/Unit%201?until=1611775014&hours=3
  */
 
-router.get("/status",           (req, res, next) => utils.mwrap(req, res, next, () => op_get_status(req)));
-router.get("/status/:name",     (req, res, next) => utils.mwrap(req, res, next, () => op_get_status(req)));
 router.get("/trace",            (req, res, next) => utils.mwrap(req, res, next, () => op_get_trace(req)));
 router.get("/trace/:name",      (req, res, next) => utils.mwrap(req, res, next, () => op_get_trace(req)));
+router.get("/status",           (req, res, next) => utils.mwrap(req, res, next, () => op_get_status(req)));
+router.get("/status/:name",     (req, res, next) => utils.mwrap(req, res, next, () => op_get_status(req)));
 
 module.exports = router;
 

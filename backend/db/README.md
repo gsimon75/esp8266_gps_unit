@@ -45,6 +45,9 @@ db.createCollection("users")
 # is_technician: can query units, change unit statuses, can add/decommission units
 # is_admin: can change/add/ban users/admins/technicians
 
+# State: svid, type, data
+db.createCollection("agps")
+
 db.users.insert({email: "gabor.simon75@gmail.com", is_admin: true, is_technician: true })
 
 
