@@ -151,8 +151,8 @@ export default {
                 }, false);
                 // ==============================================================================
 
-                context.commit("sign_in_done");
                 EventBus.$emit("signed-in", { yadda: 42 });
+                setImmediate(() => context.commit("sign_in_done"));
             }).catch(err => {
                 console.log("Failed to sign in to backend: " + err);
             });
