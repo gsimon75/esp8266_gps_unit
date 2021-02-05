@@ -7,7 +7,7 @@ const events = require("../events");
 
 const re_extract_cn = /\bCN=([^,]*)/i;
 
-function op_insert(req) {
+function op_report(req) {
     let unit_dn = req.get("X-SSL-Subject-DN");
     if (!unit_dn) {
         throw utils.error(400, "Missing SSL subject DN");
@@ -46,7 +46,7 @@ function op_insert(req) {
     return Promise.all(promises).then(() => null);
 }
 
-router.post("/",                (req, res, next) => utils.mwrap(req, res, next, () => op_insert(req)));
+router.post("/",                (req, res, next) => utils.mwrap(req, res, next, () => op_report(req)));
 
 module.exports = router;
 
