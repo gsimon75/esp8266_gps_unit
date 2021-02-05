@@ -270,6 +270,7 @@ location_reporter_task(void * pvParameters __attribute__((unused))) {
 
 #ifdef USE_AGPS
     // fetch the AGPS data and send it to gps
+    printf("Syncing AGPS\n");
     ESP_LOGI(TAG, "Fetching AGPS data");
     {
         uint8_t *agps_data = NULL;
