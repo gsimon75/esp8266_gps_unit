@@ -4,6 +4,7 @@
   "description": "Read AGPS data from a locally connected GPS and upload it to the backend",
   "main": "index.js",
   "scripts": {
+    "sync": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "gabor.simon75@gmail.com",

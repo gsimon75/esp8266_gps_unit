@@ -406,16 +406,13 @@ got_NAV_POSLLH(const uint8_t *payload) {
     ESP_LOGV(TAG, "NAV-POSLLH iTOW=%u, lon=%d, lat=%d, height=%d, hMSL=%d, hAcc=%u, vAcc=%u",
         iTOW, lon, lat, height, hMSL, hAcc, vAcc);
 
-    if (hAcc < 20000) { // mm
-        gps_status = GPS_OK;
+    if (hAcc < 0xffffffff) { // mm
+        gps_status = (hAcc < 1000000) ? GPS_OK : GPS_COARSE;
         taskENTER_CRITICAL();
         gps_fix.latitude  = lat * 1e-7;
         gps_fix.longitude = lon * 1e-7;
         taskEXIT_CRITICAL();
         process_new_fix();
-    }
-    else if (hAcc < 0x40000000) {
-        gps_status = GPS_COARSE;
     }
     else if (gps_status >= GPS_TIME) {
         gps_status = GPS_TIME;
