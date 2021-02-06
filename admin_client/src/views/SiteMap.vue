@@ -17,9 +17,9 @@
             <v-marker-cluster>
             <template v-for="(st, name) in stations">
                 <l-marker :lat-lng="st.loc" :key="st.id" @click="station_clicked(name)">
-                    <l-tooltip :options="{ permanent: true }">
-                    {{ name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
-                    </l-tooltip>
+                    <l-clickable-tooltip @click="station_clicked(name)">
+                        {{ name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
+                    </l-clickable-tooltip>
                 </l-marker>
             </template>
             </v-marker-cluster>
@@ -27,9 +27,9 @@
             <v-marker-cluster :options="{iconCreateFunction: function (c) { return unit_cluster_icon(c); } }">
             <template v-for="(u, name) in units">
                 <l-marker v-if="u.loc" :lat-lng="u.loc" :key="name" :icon="icon_unit" @click="unit_clicked(name)">
-                    <l-tooltip :options="{ permanent: true }">
-                    {{ name }}<br>{{ u.spdt }} kph
-                    </l-tooltip>
+                    <l-clickable-tooltip @click="unit_clicked(name)">
+                        {{ name }}<br>{{ u.spdt }} kph
+                    </l-clickable-tooltip>
                 </l-marker>
             </template>
             </v-marker-cluster>
@@ -149,10 +149,11 @@
 
 <script>
 // @ is an alias to /src
-import { EventBus } from "../modules/event-bus";
+import { EventBus } from "@/modules/event-bus";
 import L from "leaflet";
 import { LMap, LControlScale, LTileLayer, LMarker, LTooltip } from "vue2-leaflet";
 import Vue2LeafletMarkerCluster from "vue2-leaflet-markercluster";
+import LClickableTooltip from "@/components/LClickableTooltip";
 
 /* NOTE: when navigating away from this view, exceptions will be thrown:
    leaflet-src.js:2449 Uncaught TypeError: Cannot read property '_leaflet_pos' of undefined
@@ -201,6 +202,7 @@ export default {
         LTileLayer,
         LMarker,
         LTooltip,
+        LClickableTooltip,
         "v-marker-cluster": Vue2LeafletMarkerCluster,
     },
     data () {
