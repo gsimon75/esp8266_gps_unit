@@ -1,5 +1,5 @@
 <template>
-    <div class="site-map fill-height">
+    <div class="site-map fill-height" :style="cssVars">
         <l-map
             ref="site_map" @ready="map_is_ready"
             :zoom="currentZoom"
@@ -151,7 +151,7 @@
 // @ is an alias to /src
 import { EventBus } from "@/modules/event-bus";
 import L from "leaflet";
-import { LMap, LControlScale, LTileLayer, LMarker, LTooltip } from "vue2-leaflet";
+import { LMap, LControlScale, LTileLayer, LMarker } from "vue2-leaflet";
 import Vue2LeafletMarkerCluster from "vue2-leaflet-markercluster";
 import LClickableTooltip from "@/components/LClickableTooltip";
 
@@ -192,6 +192,7 @@ const icon_unit = L.icon({
     iconSize: [ 25, 41 ],
     shadowSize: [ 25, 41 ],
     iconAnchor: [ 13, 41 ],
+    className: "icon-unit",
 });
 
 export default {
@@ -201,7 +202,6 @@ export default {
         LControlScale,
         LTileLayer,
         LMarker,
-        LTooltip,
         LClickableTooltip,
         "v-marker-cluster": Vue2LeafletMarkerCluster,
     },
@@ -212,7 +212,7 @@ export default {
             tile_url: "https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}",
             tileLayerOptions: {
                 attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
-                maxZoom: 18,
+                maxZoom: 23,
                 zoomOffset: -1,
                 id: "mapbox/streets-v11",
                 tileSize: 512,
@@ -223,6 +223,8 @@ export default {
             currentZoom: 17,
             icon_biking,
             icon_unit,
+            icon_unit_bounce_timer: null,
+            icon_unit_delta_y: 0,
             mapOptions: {
                 zoomSnap: 0.5
             },
@@ -236,6 +238,15 @@ export default {
             showing_station_details: false,
             selected_station: null,
         };
+    },
+    computed: {
+        cssVars() {
+            // https://www.telerik.com/blogs/passing-variables-to-css-on-a-vue-component
+            return {
+                "--icon-unit-y": (this.icon_unit_delta_y - 46) + "px",
+                "--cluster-unit-y": (this.icon_unit_delta_y - 20) + "px",
+            };
+        },
     },
     methods: {
         map_is_ready: function () {
@@ -368,9 +379,16 @@ export default {
         EventBus.$on("unit_battery", this.unit_battery_changed);
         EventBus.$on("unit_status", this.unit_status_changed);
         this.$store.state.app_bar_info = "Stations & Units";
+
+        let delta = 0;
+        this.icon_unit_bounce_timer = setInterval(() => {
+            delta = (delta + 1) % 15;
+            this.icon_unit_delta_y = -1 * delta;
+        }, 100);
     },
     beforeDestroy: function () {
         this.$store.state.app_bar_info = "..."
+        clearInterval(this.icon_unit_bounce_timer);
     },
 }
 </script>
@@ -379,13 +397,18 @@ export default {
 @import "~vuetify/src/styles/main.sass";
 
 .unit-cluster {
-        background-color: #fe4;
+    background-color: #fe4;
+    margin-top: var(--cluster-unit-y) !important;
 }
 
 .unit-cluster div {
-        background-color: #e10;
-        color: #fff;
-        font-size: 1.5em;
+    background-color: #e10;
+    color: #fff;
+    font-size: 1.5em;
+}
+
+.icon-unit {
+    margin-top: var(--icon-unit-y) !important;
 }
 
 </style>
