@@ -14,6 +14,10 @@
             <l-control-scale position="topright" :imperial="false" :metric="true"/>
             <l-tile-layer :url="tile_url" :options="tileLayerOptions"/>
 
+            <l-control position="bottomright" >
+                <v-btn fab color="primary" @click="zoom_to_units"><v-icon>fas fa-crosshairs</v-icon></v-btn>
+            </l-control>
+
             <v-marker-cluster>
             <template v-for="(st, name) in stations">
                 <l-marker :lat-lng="st.loc" :key="st.id" @click="station_clicked(name)">
@@ -33,6 +37,8 @@
                 </l-marker>
             </template>
             </v-marker-cluster>
+
+            <l-polyline v-if="!!showing_unit_track" :lat-lngs="this.selected_unit_track" :color="'#e04'" :weight="5" :dashArray="'1,14'" :dashOffset="this.track_dash_offset"/>
         </l-map>
 
         <!--
@@ -137,6 +143,12 @@
 
                 <v-list-item>
                     <v-list-item-content justify="center">
+                        <v-btn color="primary" @click="fetch_selected_unit_track" rounded>Show track</v-btn>
+                    </v-list-item-content>
+                </v-list-item>
+
+                <v-list-item>
+                    <v-list-item-content justify="center">
                         <v-btn color="error" @click="showing_unit_details = false;" rounded>Close</v-btn>
                     </v-list-item-content>
                 </v-list-item>
@@ -151,7 +163,7 @@
 // @ is an alias to /src
 import { EventBus } from "@/modules/event-bus";
 import L from "leaflet";
-import { LMap, LControlScale, LTileLayer, LMarker } from "vue2-leaflet";
+import { LMap, LControl, LControlScale, LTileLayer, LMarker, LPolyline } from "vue2-leaflet";
 import Vue2LeafletMarkerCluster from "vue2-leaflet-markercluster";
 import LClickableTooltip from "@/components/LClickableTooltip";
 
@@ -199,10 +211,12 @@ export default {
     name: "SiteMap",
     components: {
         LMap,
+        LControl,
         LControlScale,
         LTileLayer,
         LMarker,
         LClickableTooltip,
+        LPolyline,
         "v-marker-cluster": Vue2LeafletMarkerCluster,
     },
     data () {
@@ -225,6 +239,7 @@ export default {
             icon_unit,
             icon_unit_bounce_timer: null,
             icon_unit_delta_y: 0,
+            track_dash_offset: "0",
             mapOptions: {
                 zoomSnap: 0.5
             },
@@ -235,6 +250,8 @@ export default {
 
             showing_unit_details: false,
             selected_unit: null,
+            showing_unit_track: false,
+            selected_unit_track: [],
             showing_station_details: false,
             selected_station: null,
         };
@@ -289,13 +306,11 @@ export default {
             });
 
             let tmpunits = {}
-            let bounds = latLngBounds([]);
             this.$store.state.ax.get("/v0/unit/trace").then(response => {
                 // response.status == 200
                 for (var u of response.data) {
                     // {"_id":"600ee41459fa9c4248ea72cb","unit":"gps_unit_0","time":1611588627,"lat":25.0458,"lon":55.2457,"azi":0,"spd":0}
                     let loc = latLng(u.lat, u.lon);
-                    bounds.extend(loc);
                     tmpunits[u.unit] = {
                         unit: u.unit,
                         location_time: u.time,
@@ -319,23 +334,48 @@ export default {
                 // FIXME: merge battery and startup info in a similar manner
             }).then(() => {
                 console.log("units=" + JSON.stringify(tmpunits));
-                this.map.fitBounds(bounds, {});
                 this.units = tmpunits;
+                this.zoom_to_units();
             });
 
             // FIXME: fetch unit battery levels
         },
+        fetch_selected_unit_track: function () {
+            console.log("Fetching track");
+            let new_track = [];
+            this.$store.state.ax.get("/v0/unit/trace/" + encodeURIComponent(this.selected_unit.unit) + "?hours=24&num=100").then(response => {
+                for (var u of response.data) {
+                    //   { "_id": "601ed7c60aa99850a96e9a11", "unit": "Simulated", "time": 1612634054, "lat": 25.0869683, "lon": 55.2479817, "azi": 0, "spd": 15.127 }
+                    new_track.push(latLng(u.lat, u.lon));
+                }
+            }).then(() => {
+                this.selected_unit_track = new_track;
+                this.showing_unit_track = true;
+            });
+        },
+
+        zoom_to_units: function() {
+            let bounds = latLngBounds([]);
+            for (let u in this.units) {
+                bounds.extend(this.units[u].loc);
+            }
+            this.map.fitBounds(bounds, {});
+        },
 
         unit_location_changed: function (u) {
             console.log("Updating unit location " + JSON.stringify(u));
+            let loc = latLng(u.lat, u.lon);
             this.$set(this.units, u.unit, {
                 ...this.units[u.unit],
                 location_time: u.time,
-                loc: latLng(u.lat, u.lon),
+                loc,
                 spd: u.spd,
                 spdt: (u.spd * 3.6).toFixed(1),
                 azi: u.azi,
             });
+            if (this.selected_unit && (this.selected_unit.unit == u.unit) && this.showing_unit_track) {
+                this.selected_unit_track.unshift(loc);
+            }
         },
         unit_battery_changed: function (u) {
             console.log("Updating unit battery " + JSON.stringify(u));
@@ -361,18 +401,19 @@ export default {
         },
         unit_clicked: function (u) {
             this.selected_unit = this.units[u];
+            this.showing_unit_track = false;
             this.showing_unit_details = true;
         },
     },
     created: function() {
-        console.log("SiteMap created");
+        console.log("SiteMap created, store.state.sign_in_ready=" + this.$store.state.sign_in_ready);
         // this.$refs.site_map.mapObject.ANY_LEAFLET_MAP_METHOD();
         if (!this.$store.getters.is_logged_in) {
             console.log("Not signed in, proceed to sign-in");
             this.$router.push("/signin");
         }
         EventBus.$on("signed-in", this.fetch_locations);
-        if (this.$store.state.auth.sign_in_ready) {
+        if (this.$store.state.sign_in_ready) {
             this.fetch_locations();
         }
         EventBus.$on("unit_location", this.unit_location_changed);
@@ -384,6 +425,7 @@ export default {
         this.icon_unit_bounce_timer = setInterval(() => {
             delta = (delta + 1) % 15;
             this.icon_unit_delta_y = -1 * delta;
+            this.track_dash_offset = "" + delta;
         }, 100);
     },
     beforeDestroy: function () {
@@ -407,7 +449,20 @@ export default {
     font-size: 1.5em;
 }
 
+@keyframes icon-spin {
+    from {
+        transform: rotate3d(0, 1, 0, 0deg);
+        opacity: 1;
+    }
+    to {
+        transform: rotate3d(0, 1, 0, 360deg);
+        opacity: 1;
+    }
+}
+
 .icon-unit {
+/*    animation: 2s infinite linear icon-spin; */
+/*    transform-origin: center; */
     margin-top: var(--icon-unit-y) !important;
 }
 
