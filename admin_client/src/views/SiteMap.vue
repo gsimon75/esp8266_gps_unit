@@ -30,7 +30,7 @@
 
             <v-marker-cluster :options="{iconCreateFunction: function (c) { return unit_cluster_icon(c); } }">
             <template v-for="(u, name) in units">
-                <l-marker v-if="u.loc" :lat-lng="u.loc" :key="name" :icon="icon_unit" @click="unit_clicked(name)">
+                <l-marker v-if="u.loc" :lat-lng="u.loc" :key="name" :icon="icon_test" @click="unit_clicked(name)" :zIndexOffset="1000">
                     <l-clickable-tooltip @click="unit_clicked(name)">
                         {{ name }}<br>{{ u.spdt }} kph
                     </l-clickable-tooltip>
@@ -38,7 +38,7 @@
             </template>
             </v-marker-cluster>
 
-            <l-polyline v-if="!!showing_unit_track" :lat-lngs="this.selected_unit_track" :color="'#e04'" :weight="5" :dashArray="'1,14'" :dashOffset="this.track_dash_offset"/>
+            <l-polyline v-if="!!showing_unit_track" :lat-lngs="this.selected_unit_track" className="trace-unit"/>
         </l-map>
 
         <!--
@@ -197,14 +197,10 @@ const icon_biking = L.icon({
     iconAnchor: [ 26, 41 ],
 });
 
-const icon_unit = L.icon({
-    iconUrl: require("../assets/unit-icon.png"),
-    shadowUrl: require("../assets/unit-shadow.png"),
-    iconRetinaUrl: require("../assets/unit-icon-2x.png"),
-    iconSize: [ 25, 41 ],
-    shadowSize: [ 25, 41 ],
-    iconAnchor: [ 13, 41 ],
-    className: "icon-unit",
+const icon_test = L.divIcon({
+    html: '<div><img class="icon-unit" src="'+ require("../assets/unit-icon.png") + '"></div>',
+    className: "no-such-class",
+    iconSize: new L.Point(0, 0),
 });
 
 export default {
@@ -236,10 +232,7 @@ export default {
             currentCenter: latLng(25.0, 55.0),
             currentZoom: 17,
             icon_biking,
-            icon_unit,
-            icon_unit_bounce_timer: null,
-            icon_unit_delta_y: 0,
-            track_dash_offset: "0",
+            icon_test,
             mapOptions: {
                 zoomSnap: 0.5
             },
@@ -260,8 +253,6 @@ export default {
         cssVars() {
             // https://www.telerik.com/blogs/passing-variables-to-css-on-a-vue-component
             return {
-                "--icon-unit-y": (this.icon_unit_delta_y - 46) + "px",
-                "--cluster-unit-y": (this.icon_unit_delta_y - 20) + "px",
             };
         },
     },
@@ -346,7 +337,7 @@ export default {
             this.$store.state.ax.get("/v0/unit/trace/" + encodeURIComponent(this.selected_unit.unit) + "?hours=24&num=100").then(response => {
                 for (var u of response.data) {
                     //   { "_id": "601ed7c60aa99850a96e9a11", "unit": "Simulated", "time": 1612634054, "lat": 25.0869683, "lon": 55.2479817, "azi": 0, "spd": 15.127 }
-                    new_track.push(latLng(u.lat, u.lon));
+                    new_track.unshift(latLng(u.lat, u.lon));
                 }
             }).then(() => {
                 this.selected_unit_track = new_track;
@@ -374,7 +365,7 @@ export default {
                 azi: u.azi,
             });
             if (this.selected_unit && (this.selected_unit.unit == u.unit) && this.showing_unit_track) {
-                this.selected_unit_track.unshift(loc);
+                this.selected_unit_track.push(loc);
             }
         },
         unit_battery_changed: function (u) {
@@ -420,17 +411,9 @@ export default {
         EventBus.$on("unit_battery", this.unit_battery_changed);
         EventBus.$on("unit_status", this.unit_status_changed);
         this.$store.state.app_bar_info = "Stations & Units";
-
-        let delta = 0;
-        this.icon_unit_bounce_timer = setInterval(() => {
-            delta = (delta + 1) % 15;
-            this.icon_unit_delta_y = -1 * delta;
-            this.track_dash_offset = "" + delta;
-        }, 100);
     },
     beforeDestroy: function () {
         this.$store.state.app_bar_info = "..."
-        clearInterval(this.icon_unit_bounce_timer);
     },
 }
 </script>
@@ -440,7 +423,6 @@ export default {
 
 .unit-cluster {
     background-color: #fe4;
-    margin-top: var(--cluster-unit-y) !important;
 }
 
 .unit-cluster div {
@@ -460,10 +442,27 @@ export default {
     }
 }
 
+@keyframes trace-crawl {
+    from {
+        stroke-dashoffset: 15;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
 .icon-unit {
-/*    animation: 2s infinite linear icon-spin; */
-/*    transform-origin: center; */
-    margin-top: var(--icon-unit-y) !important;
+    animation: 2s infinite linear icon-spin;
+    position: relative;
+    left: -13px;
+    top: -36px;
+}
+
+.trace-unit {
+    stroke: #e04;
+    stroke-width: 6;
+    stroke-dasharray: 1,15;
+    animation: 2s infinite linear trace-crawl;
 }
 
 </style>
