@@ -30,10 +30,15 @@ function get_status_filter(req) {
     return ("status" in req.query) ? req.query.status.split(",") : null;
 }
 
+function get_num_filter(req) {
+    return ("num" in req.query) ? parseInt(req.query.num) : MAX_RESULT_RECORDS ;
+}
+
 function filtered_pipeline(req) {
     const name = req.params.name;
     const tf = get_time_filter(req);
     const sf = get_status_filter(req);
+    const nf = get_num_filter(req);
 
     var filter = {
         time: {
@@ -55,7 +60,7 @@ function filtered_pipeline(req) {
         pipe = [
             { $match: filter },
             { $sort: { unit: 1, time: -1 }, },
-            { $limit: MAX_RESULT_RECORDS },
+            { $limit: nf },
         ];
     }
     else {
@@ -66,7 +71,7 @@ function filtered_pipeline(req) {
             { $sort: { unit: 1, time: -1 } },
             { $group: {_id: "$unit", lastrec: { $first: "$$CURRENT" } } },
             { $replaceWith: "$lastrec" },
-            { $limit: MAX_RESULT_RECORDS },
+            { $limit: nf },
         ];
     }
 
@@ -94,6 +99,16 @@ function op_get_trace(req) {
 }
 
 
+function op_get_battery(req) {
+    logger.debug("op_get_battery()");
+    if (!req.session || !req.session.is_technician) {
+        throw utils.error(401, "must be technician");
+    }
+    const pipe = filtered_pipeline(req);
+    return db.cursor_all(db.unit_location().aggregate(pipe));
+}
+
+
 /*
  * 1. What units do we have/had? -> List of units: id, name, status, user
  * Narrowing: 
@@ -111,6 +126,8 @@ router.get("/trace",            (req, res, next) => utils.mwrap(req, res, next, 
 router.get("/trace/:name",      (req, res, next) => utils.mwrap(req, res, next, () => op_get_trace(req)));
 router.get("/status",           (req, res, next) => utils.mwrap(req, res, next, () => op_get_status(req)));
 router.get("/status/:name",     (req, res, next) => utils.mwrap(req, res, next, () => op_get_status(req)));
+router.get("/battery",            (req, res, next) => utils.mwrap(req, res, next, () => op_get_battery(req)));
+router.get("/battery/:name",      (req, res, next) => utils.mwrap(req, res, next, () => op_get_battery(req)));
 
 module.exports = router;
 

@@ -36,7 +36,6 @@ export default {
         id_token: "",
         provider_id: "",
         uid: "",
-        sign_in_ready: false,
     },
     getters: {
         auth(state, getters, rootState) { // eslint-disable-line no-unused-vars
@@ -56,9 +55,6 @@ export default {
             state.provider_id = x.provider_id;
             state.uid = x.uid;
         },
-        sign_in_done(state) {
-            state.sign_in_ready = true;
-        },
         logged_out(state) {
             console.log("Signed out");
             state.name = "Anonymous";
@@ -67,7 +63,6 @@ export default {
             state.id_token = "";
             state.provider_id = "";
             state.uid = "";
-            state.sign_in_ready = false;
         },
     },
     actions: {
@@ -117,6 +112,7 @@ export default {
         },
         sign_out(context) {
             console.log("sign_out()");
+            context.commit("set_signin_state", false);
             return context.rootState.ax.get("v0/logout").then(() => {
                 console.log("Signed out from backend");
                 EventBus.$emit("signed-out");
@@ -152,7 +148,7 @@ export default {
                 // ==============================================================================
 
                 EventBus.$emit("signed-in", { yadda: 42 });
-                setImmediate(() => context.commit("sign_in_done"));
+                setImmediate(() => context.commit("set_signin_state", true));
             }).catch(err => {
                 console.log("Failed to sign in to backend: " + err);
             });

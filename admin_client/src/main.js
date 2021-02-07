@@ -65,6 +65,7 @@ const store = new Vuex.Store({
     state: {
         ax,
         is_started: false,
+        sign_in_ready: false,
         app_bar_info: "...",
         auth_plugin: null,
         db: null,
@@ -83,6 +84,9 @@ const store = new Vuex.Store({
         },
         set_db(state, x) {
             state.db = x;
+        },
+        set_signin_state(state, value) {
+            state.sign_in_ready = value;
         },
     },
     actions: {
