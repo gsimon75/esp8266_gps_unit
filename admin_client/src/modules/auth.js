@@ -1,5 +1,5 @@
 import {cfaSignIn, cfaSignOut } from "capacitor-firebase-auth";
-import { EventBus } from "./event-bus";
+import { EventBus } from "@/modules/event-bus";
 //const WebSocket = require("ws");
 
 const web_app_config = {
@@ -128,11 +128,13 @@ export default {
         },
         sign_in_to_backend(context, id_token) {
             console.log("Signing in to backend");
-            context.rootState.ax.defaults.headers.common["Authorization"] = "Bearer " + id_token;
-            context.rootState.ax.get("v0/whoami").then(result => {
+            //context.rootState.ax.defaults.headers.common["Authorization"] = "Bearer " + id_token;
+            context.rootState.ax.get("v0/whoami", { headers: { Authorization: "Bearer " + id_token}, }).then(result => {
                 console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
 
                 // ==============================================================================
+                // https://javascript.info/server-sent-events
+                // https://developer.mozilla.org/en-US/docs/Web/API/EventSource
                 var source = new EventSource("/v0/event");
                 ["station", "unit_location", "unit_battery", "unit_status"].forEach(t => {
                     let listener = event => {

@@ -23,24 +23,25 @@ import VuexPersist from "vuex-persist";
 import VueRouter from "vue-router";
 Vue.use(VueRouter);
 
-import "./assets/Roboto.css";
-import "./assets/fontawesome5.all.css";
+import "@/assets/Roboto.css";
+import "@/assets/fontawesome5.all.css";
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 import App from "./App.vue";
 
-import ExitGuard from "./views/ExitGuard.vue";
-import NotFound from "./views/NotFound.vue";
-import SignIn from "./views/SignIn.vue";
-import Home from "./views/Home.vue";
-import SiteMap from "./views/SiteMap.vue";
-import Account from "./views/Account.vue";
+import ExitGuard from "@/views/ExitGuard.vue";
+import NotFound from "@/views/NotFound.vue";
+import SignIn from "@/views/SignIn.vue";
+import Home from "@/views/Home.vue";
+import SiteMap from "@/views/SiteMap.vue";
+import Account from "@/views/Account.vue";
+import Test from "@/views/Test.vue";
 
 import { Plugins } from "@capacitor/core";
 const { SplashScreen, Geolocation } = Plugins;
 
-import auth from "./modules/auth";
+import auth from "@/modules/auth";
 
 const vuexLocalStorage = new VuexPersist({
     key: "vuex",
@@ -57,7 +58,14 @@ const ax = axios.create({ httpAgent, withCredentials: true });
 ax.interceptors.response.use(function (response) {
     return response;
 }, function (error) {
-    console.log("axios intercepted response: " + JSON.stringify(error));
+    // [2021-02-14T12:43:20.627] [DEBUG] utils - error = {"status":403,"error":{"code":"auth/id-token-expired","message":"Firebase ID token has expired. Get a fresh ID token from your client app and try again (auth/id-token-expired). See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."}}
+    // axios intercepted response: {"message":"Request failed with status code 403","name":"Error","stack":"Error: Request failed with status code 403\n    at createError (webpack-internal:///./node_modules/axios/lib/core/createError.js:16:15)\n    at settle (webpack-internal:///./node_modules/axios/lib/core/settle.js:17:12)\n    at XMLHttpRequest.handleLoad (webpack-internal:///./node_modules/axios/lib/adapters/xhr.js:62:7)","config":{"url":"/v0/unit/trace/Simulated?before=1613306600&num=8","method":"get","headers":{"Accept":"application/json, text/plain, */*","Authorization":"Bearer eyJ..."},"transformRequest":[null],"transformResponse":[null],"timeout":0,"withCredentials":true,"xsrfCookieName":"XSRF-TOKEN","xsrfHeaderName":"X-XSRF-TOKEN","maxContentLength":-1,"maxBodyLength":-1,"httpAgent":{}}}
+    console.log("axios intercepted, error.response: " + JSON.stringify(error.response));
+    for (let x in error) {
+        console.log("for ... in error found: " + x);
+    }
+    console.log("keys of error: " + JSON.stringify(Object.keys(error)));
+    console.log("own props of error: " + JSON.stringify(Object.getOwnPropertyNames(error)));
     return Promise.reject(error);
 });
 
@@ -170,6 +178,11 @@ const router = new VueRouter({
             path: "/account",
             name: "Account",
             component: Account
+        },
+        {
+            path: "/test",
+            name: "Test",
+            component: Test
         },
         {
             path: "*",
