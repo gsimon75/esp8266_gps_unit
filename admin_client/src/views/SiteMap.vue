@@ -15,6 +15,7 @@
             <l-tile-layer :url="tile_url" :options="tileLayerOptions"/>
 
             <l-control position="bottomright" >
+                <v-btn fab color="primary" @click="showing_unit_track = !showing_unit_track" :outlined="!showing_unit_track"><v-icon>fas fa-route</v-icon></v-btn>
                 <v-btn fab color="primary" @click="zoom_to_units"><v-icon>fas fa-crosshairs</v-icon></v-btn>
             </l-control>
 
@@ -30,7 +31,7 @@
 
             <v-marker-cluster :options="{iconCreateFunction: function (c) { return unit_cluster_icon(c); } }">
             <template v-for="(u, name) in units">
-                <l-marker v-if="u.loc" :lat-lng="u.loc" :key="name" :icon="icon_test" @click="unit_clicked(name)" :zIndexOffset="1000">
+                <l-marker v-if="u.loc" :lat-lng="u.loc" :key="name" :icon="(u == selected_unit) ? icon_selected_unit : icon_unselected_unit" @click="unit_clicked(name)" :zIndexOffset="1000">
                     <l-clickable-tooltip @click="unit_clicked(name)">
                         {{ name }}<br>{{ u.spdt }} kph
                     </l-clickable-tooltip>
@@ -38,7 +39,7 @@
             </template>
             </v-marker-cluster>
 
-            <l-polyline v-if="!!showing_unit_track" :lat-lngs="this.selected_unit_track" className="trace-unit"/>
+            <l-polyline v-if="showing_unit_track && selected_unit" :lat-lngs="this.selected_unit_track" className="trace-unit"/>
         </l-map>
 
         <!--
@@ -140,13 +141,6 @@
                     </v-list-item-content>
                 </v-list-item>
 
-
-                <v-list-item>
-                    <v-list-item-content justify="center">
-                        <v-btn color="primary" @click="fetch_selected_unit_track" rounded>Show track</v-btn>
-                    </v-list-item-content>
-                </v-list-item>
-
                 <v-list-item>
                     <v-list-item-content justify="center">
                         <v-btn color="error" @click="showing_unit_details = false;" rounded>Close</v-btn>
@@ -188,18 +182,15 @@ Icon.Default.mergeOptions({
     iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
 });
 
-const icon_biking = L.icon({
-    iconUrl: require("../assets/marker-biking.png"),
-    shadowUrl: require("../assets/marker-biking-shadow.png"),
-    iconRetinaUrl: require("../assets/marker-biking-2x.png"),
-    iconSize: [ 52, 41 ],
-    shadowSize: [ 52, 41 ],
-    iconAnchor: [ 26, 41 ],
+const icon_selected_unit = L.divIcon({
+    html: '<img src="'+ require("../assets/selected-unit-icon.png") + '">',
+    className: "icon-unit selected",
+    iconSize: new L.Point(0, 0),
 });
 
-const icon_test = L.divIcon({
-    html: '<div><img class="icon-unit" src="'+ require("../assets/unit-icon.png") + '"></div>',
-    className: "no-such-class",
+const icon_unselected_unit = L.divIcon({
+    html: '<img src="'+ require("../assets/unit-icon.png") + '">',
+    className: "icon-unit unselected",
     iconSize: new L.Point(0, 0),
 });
 
@@ -229,10 +220,10 @@ export default {
                 accessToken: "pk.eyJ1IjoiZ3NpbW9uNzUiLCJhIjoiY2trc2xuczl3MGVwNzJ2cGx0bDdlZnRoNCJ9.ZGCgtuQhE9AaNvxHaAYD6w",
             },
             map: false,
-            currentCenter: latLng(25.0, 55.0),
-            currentZoom: 17,
-            icon_biking,
-            icon_test,
+            currentCenter: latLng(25.1, 55.2),
+            currentZoom: 11,
+            icon_selected_unit,
+            icon_unselected_unit,
             mapOptions: {
                 zoomSnap: 0.5
             },
@@ -331,26 +322,15 @@ export default {
 
             // FIXME: fetch unit battery levels
         },
-        fetch_selected_unit_track: function () {
-            console.log("Fetching track");
-            let new_track = [];
-            this.$store.state.ax.get("/v0/unit/trace/" + encodeURIComponent(this.selected_unit.unit) + "?hours=24&num=100").then(response => {
-                for (var u of response.data) {
-                    //   { "_id": "601ed7c60aa99850a96e9a11", "unit": "Simulated", "time": 1612634054, "lat": 25.0869683, "lon": 55.2479817, "azi": 0, "spd": 15.127 }
-                    new_track.unshift(latLng(u.lat, u.lon));
-                }
-            }).then(() => {
-                this.selected_unit_track = new_track;
-                this.showing_unit_track = true;
-            });
-        },
 
         zoom_to_units: function() {
             let bounds = latLngBounds([]);
             for (let u in this.units) {
                 bounds.extend(this.units[u].loc);
             }
-            this.map.fitBounds(bounds, {});
+            if (bounds.length > 0) {
+                this.map.fitBounds(bounds, {});
+            }
         },
 
         unit_location_changed: function (u) {
@@ -365,6 +345,7 @@ export default {
                 azi: u.azi,
             });
             if (this.selected_unit && (this.selected_unit.unit == u.unit) && this.showing_unit_track) {
+                this.selected_unit_track.shift(loc);
                 this.selected_unit_track.push(loc);
             }
         },
@@ -391,8 +372,20 @@ export default {
             this.showing_station_details = true;
         },
         unit_clicked: function (u) {
-            this.selected_unit = this.units[u];
+            if (this.selected_unit && (this.selected_unit.unit == u)) {
+                return;
+            }
             this.showing_unit_track = false;
+            this.selected_unit = this.units[u];
+            let new_track = [];
+            this.$store.state.ax.get("/v0/unit/trace/" + encodeURIComponent(this.selected_unit.unit) + "?hours=24&num=100").then(response => {
+                for (var u of response.data) {
+                    //   { "_id": "601ed7c60aa99850a96e9a11", "unit": "Simulated", "time": 1612634054, "lat": 25.0869683, "lon": 55.2479817, "azi": 0, "spd": 15.127 }
+                    new_track.unshift(latLng(u.lat, u.lon));
+                }
+            }).then(() => {
+                this.selected_unit_track = new_track;
+            });
             this.showing_unit_details = true;
         },
     },
@@ -451,11 +444,15 @@ export default {
     }
 }
 
-.icon-unit {
-    animation: 2s infinite linear icon-spin;
+.icon-unit img {
+    animation: 5s infinite linear icon-spin;
     position: relative;
     left: -13px;
     top: -36px;
+}
+
+.icon-unit.selected img {
+    animation: 1.5s infinite linear icon-spin;
 }
 
 .trace-unit {
