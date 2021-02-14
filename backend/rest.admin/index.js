@@ -96,6 +96,8 @@ router.ws("/event", function(ws, req) {
 router.get("/event", (req, res) => {
     logger.debug("event for " + req.session.email + ": start");
 
+    // NOTE: to prevent client-side from further reconnecting, send 204
+    // "Also, there will be no reconnection if the response has an incorrect Content-Type or its HTTP status differs from 301, 307, 200 and 204."
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("X-Accel-Buffering", "no");

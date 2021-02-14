@@ -7,9 +7,15 @@ const utils = require("../utils");
 
 function get_time_filter(req) {
     var result = {
-        until: ("until" in req.query) ? parseInt(req.query.until) : Math.round(Date.now() / 1000),
+        from: null,
+        until: null,
         duration: null,
     };
+    //until: ("until" in req.query) ? parseInt(req.query.until) : Math.round(Date.now() / 1000),
+    if ("from" in req.query)
+        result.from = parseInt(req.query.from);
+    if ("until" in req.query)
+        result.until = parseInt(req.query.until);
 
     if ("seconds" in req.query)
         result.duration += parseInt(req.query.seconds);
@@ -40,26 +46,49 @@ function filtered_pipeline(req) {
     const sf = get_status_filter(req);
     const nf = get_num_filter(req);
 
+    var pipe;
+    var time_sort_dir = -1;
+
     var filter = {
         time: {
             $ne: null,
-            $lt: tf.until,
         },
     };
-    if (name) {
-        filter.unit = { $eq: name };
+    if (tf.until) {
+        filter.time.$lt = tf.until;
+        time_sort_dir = -1;
+    }
+    if (tf.from) {
+        filter.time.$gt = tf.from;
+        time_sort_dir = 1;
     }
     if (sf) {
         filter.status = { $in: sf };
     }
     
-    var pipe;
+    
+    if (tf.from && tf.until && (tf.duration !== null)) {
+        // make up your mind...
+        delete tf.duration;
+    }
 
-    if (tf.duration !== null) {
-        filter.time.$gt = tf.until - tf.duration;
+    if (tf.duration) {
+        if (tf.until) {
+            filter.time.$gt = tf.until - tf.duration;
+        }
+        else if (tf.from) {
+            filter.time.$lt = tf.from + tf.duration;
+        }
+        else {
+            filter.time.$gt = Math.round(Date.now() / 1000) - tf.duration;
+        }
+    }
+
+    if (name) {
+        filter.unit = { $eq: name };
         pipe = [
             { $match: filter },
-            { $sort: { unit: 1, time: -1 }, },
+            { $sort: { unit: 1, time: time_sort_dir }, },
             { $limit: nf },
         ];
     }
@@ -71,7 +100,6 @@ function filtered_pipeline(req) {
             { $sort: { unit: 1, time: -1 } },
             { $group: {_id: "$unit", lastrec: { $first: "$$CURRENT" } } },
             { $replaceWith: "$lastrec" },
-            { $limit: nf },
         ];
     }
 
@@ -90,11 +118,13 @@ function op_get_status(req) {
 
 
 function op_get_trace(req) {
-    logger.debug("op_get_trace()");
+    logger.debug("op_get_trace(), url=" + req.url);
+    //utils.dump_request(req);
     if (!req.session || !req.session.is_technician) {
         throw utils.error(401, "must be technician");
     }
     const pipe = filtered_pipeline(req);
+    logger.debug("pipeline: " + JSON.stringify(pipe));
     return db.cursor_all(db.unit_location().aggregate(pipe));
 }
 
