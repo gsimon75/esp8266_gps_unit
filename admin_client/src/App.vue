@@ -25,6 +25,11 @@
                     <v-list-item-content>Sign in</v-list-item-content>
                 </v-list-item>
 
+                <v-list-item to="/users">
+                    <v-list-item-icon><v-icon>fas fa-users</v-icon></v-list-item-icon>
+                    <v-list-item-content>Users</v-list-item-content>
+                </v-list-item>
+
                 <v-list-item to="/test">
                     <v-list-item-icon><v-icon>fas fa-exclamation-triangle</v-icon></v-list-item-icon>
                     <v-list-item-content>DevTest</v-list-item-content>

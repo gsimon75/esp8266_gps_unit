@@ -36,6 +36,7 @@ import SignIn from "@/views/SignIn.vue";
 import Home from "@/views/Home.vue";
 import SiteMap from "@/views/SiteMap.vue";
 import Account from "@/views/Account.vue";
+import Users from "@/views/Users.vue";
 import Test from "@/views/Test.vue";
 
 import { Plugins } from "@capacitor/core";
@@ -183,6 +184,11 @@ const router = new VueRouter({
             path: "/test",
             name: "Test",
             component: Test
+        },
+        {
+            path: "/users",
+            name: "Users",
+            component: Users
         },
         {
             path: "*",
