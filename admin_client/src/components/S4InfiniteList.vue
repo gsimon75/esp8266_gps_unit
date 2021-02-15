@@ -186,7 +186,6 @@ export default {
             // the same for bottom
             if (is_near_end && !this.reached_last_item && !this.preload_in_progress) {
                 this.preload_in_progress = true;
-                // FIXME: do we need this: // let n = this.start_idx + this.items.length;
                 let limit_item = (this.items.length > 0) ? this.items[this.items.length - 1] : null;
                 this.supplyItems(limit_item, this.preload, false).then(new_items => {
                     if (new_items[new_items.length - 1] == null) {

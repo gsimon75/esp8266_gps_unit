@@ -2,15 +2,28 @@
     <div class="test">
         <s4-infinite-list :supply-items="gen_items" :max-items="19">
             <template v-slot:header>
-                <span>Header</span>
+                <v-list-item>
+                    <v-list-item-content class="text-center">
+                        <span>No preceding entries</span>
+                    </v-list-item-content>
+                </v-list-item>
             </template>
 
-            <template v-slot:item="{idx, item}">
-                <div :class="'qwer bg-' + ((item/10) % 2)">idx={{ idx }}, item={{ item }}{{ debug(idx, item) }}</div>
+            <template v-slot:item="{item, idx}">
+                <v-list-item two-line :class="'bg-' + (idx % 2)">
+                    <v-list-item-content>
+                        <v-list-item-title>{{ new Date(item.time * 1000).toLocaleString() }}</v-list-item-title>
+                        <v-list-item-subtitle>{{ loc2str(item.loc) }}</v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list-item>
             </template>
 
             <template v-slot:footer>
-                <span>Footer</span>
+                <v-list-item>
+                    <v-list-item-content class="text-center">
+                        <span>No further entries</span>
+                    </v-list-item-content>
+                </v-list-item>
             </template>
         </s4-infinite-list>
     </div>
@@ -31,18 +44,17 @@ export default {
         };
     },
     methods: {
-        debug: function (idx, item) {
-            console.log("rendering idx=" + idx + ", item=" + item);
-            return "";
+        loc2str: function (loc) {
+            return "(" + loc.lat.toFixed(4) + ", " + loc.lng.toFixed(4) + ")";
         },
         gen_items: function (limit, num, before) {
             let limit_time = (limit === null) ? Math.round(Date.now() / 1000) : limit.time;
-            console.log("gen_items(" + limit + ", " + num + ", " + before + ")");
+            //console.log("gen_items(" + limit + ", " + num + ", " + before + ")");
             let query = "/v0/unit/trace/Simulated?" + (before ? "until" : "from") + "=" + limit_time + "&num=8";
-            // for backward search: result is expected in a latest-first order
-            // for forward search: result is expected in an earliest-first order
             return this.$store.state.ax.get(query).then(response => {
-                console.log("response=" + JSON.stringify(response));
+                // for backward search: result is expected in a latest-first order
+                // for forward search: result is expected in an earliest-first order
+                //console.log("response=" + JSON.stringify(response));
                 let new_items = [];
 
                 response.data.forEach(u => {
@@ -73,18 +85,8 @@ export default {
         flex-direction: column;
     }
 
-    .qwer {
-        height: 100px;
-        width: 100%;
-    }
-
-    .asdf {
-        width: 100px;
-        height: 100%;
-    }
-
     .bg-0 {
-        background-color: #fee;
+        background-color: #ddf;
     }
 
     .bg-1, .bg--1 {
