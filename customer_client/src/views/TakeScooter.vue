@@ -5,7 +5,7 @@
         -->
         <div>
             <div class="circle green white--text ma-auto">
-                <i class="fa fa-biking fa-10x"></i>
+                <i class="fa fa-biking fa-10x"/>
             </div>
         </div>
 

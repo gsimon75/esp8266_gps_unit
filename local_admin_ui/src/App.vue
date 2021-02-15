@@ -7,7 +7,7 @@
 
             <template v-slot:extension>
                 <v-tabs v-model="tab" align-with-title>
-                    <v-tabs-slider color="yellow"></v-tabs-slider>
+                    <v-tabs-slider color="yellow"/>
                     <v-tab key="wifi">WiFi</v-tab>
                     <v-tab key="ssl">SSL</v-tab>
                     <v-tab key="ota">OTA</v-tab>
