@@ -64,7 +64,7 @@ router.use("/unit", require("./unit"));
  */
 
 // administration of users
-//router.use("/user", require("./user"));
+router.use("/user", require("./user"));
 /*
  * - list users
  * - add/delete new user
@@ -129,21 +129,6 @@ router.get("/event", (req, res) => {
         res.end();
     });
 });
-
-/*
-var fake_msg_seq = 0;
-function send_fake_msg() {
-    logger.debug("send_fake_msg() seq=" + fake_msg_seq);
-
-    var message = {
-        s4_type: "fake",
-        s4_seq: fake_msg_seq++,
-        s4_timestamp: new Date(),
-    };
-    events.admin_event_emitter.emit("sendit", "message", message);
-}
-var fake_msg_timer = setInterval(send_fake_msg, 5 * 1000);
-*/
 
 module.exports = router;
 

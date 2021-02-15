@@ -58,6 +58,7 @@ function process_auth(req) {
         return db.users().findOne({email: decodedToken.email}).then(result => {
             req.session.is_admin = false;
             req.session.is_technician = false;
+            // FIXME: handle banned/disabled accounts
             req.session.provider = decodedToken.firebase.sign_in_provider;
             req.session.email = decodedToken.email;
             req.session.name = decodedToken.name;
