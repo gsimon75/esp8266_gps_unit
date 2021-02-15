@@ -1,9 +1,9 @@
 <template>
     <v-app id="app">
         <v-app-bar color="primary" short dense dark>
-            <v-app-bar-nav-icon @click.stop="drawer=!drawer"></v-app-bar-nav-icon>
+            <v-app-bar-nav-icon @click.stop="drawer=!drawer"/>
             <v-toolbar-title>{{ $store.state.app_bar_info }}</v-toolbar-title>
-            <v-spacer></v-spacer>
+            <v-spacer/>
             <span class="mr-2">{{ $store.getters.auth.name }}</span>
             <v-btn to="/home" text><v-img class="shrink mr-2" contain src="./assets/logo.png" width="24px" height="24px"/></v-btn>
         </v-app-bar>

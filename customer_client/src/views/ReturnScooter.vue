@@ -2,7 +2,7 @@
     <div class="return-scooter">
         <div>
             <div class="circle red white--text ma-auto">
-                <i class="fa fa-motorcycle fa-10x"></i>
+                <i class="fa fa-motorcycle fa-10x"/>
             </div>
         </div>
 

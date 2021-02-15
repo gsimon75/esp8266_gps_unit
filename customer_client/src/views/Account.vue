@@ -40,7 +40,7 @@
 
             </v-expansion-panels>
 
-            <v-divider class="py-2"></v-divider>
+            <v-divider class="py-2"/>
             
             <v-row dense>
                 <v-col cols="6">
@@ -75,23 +75,23 @@
         <v-dialog v-model="editing_card" max-width="90vw" modal>
             <v-card v-if="!!selected_card">
                 <v-card-title class="text-h4">
-                    <v-text-field v-model="selected_card.name" label="Name"></v-text-field>
+                    <v-text-field v-model="selected_card.name" label="Name"/>
                 </v-card-title>
 
                 <v-container>
                     <v-row>
                         <v-col cols="12">
-                            <v-text-field v-model="selected_card.card_number" label="Number" placeholder="4 x 4 digits"></v-text-field>
+                            <v-text-field v-model="selected_card.card_number" label="Number" placeholder="4 x 4 digits"/>
                         </v-col>
                     </v-row>
                     <v-row>
                         <v-col cols="12">
-                            <v-date-picker v-model="selected_card.expiry" type="month"></v-date-picker>
+                            <v-date-picker v-model="selected_card.expiry" type="month"/>
                         </v-col>
                     </v-row>
                     <v-row>
                         <v-col cols="12">
-                            <v-text-field v-model="selected_card.cvc" :append-icon="show_cvc ? 'fas fa-eye' : 'fas fa-eye-slash'" :type="show_cvc ? 'text' : 'password'" label="CVC" @click:append="show_cvc ^= true"></v-text-field>
+                            <v-text-field v-model="selected_card.cvc" :append-icon="show_cvc ? 'fas fa-eye' : 'fas fa-eye-slash'" :type="show_cvc ? 'text' : 'password'" label="CVC" @click:append="show_cvc ^= true"/>
                         </v-col>
                     </v-row>
                     <v-row justify="center">
