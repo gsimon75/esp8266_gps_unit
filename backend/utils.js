@@ -77,19 +77,19 @@ function mwrap(req, res, next, handler) {
     });
 }
 
-function require_client(req, client_id) {
-    if (req.session.euid <= 0) {
+function require_client(req, client_email) {
+    if (!req.session || !req.session.email) {
         throw error(401, "Authentication needed");
     }
-    if (client_id && (req.session.euid != client_id)) {
+    if (client_email && (req.session.email != client_email)) {
         throw error(403, "Not owner of data");
     }
 }
 
-function require_trainer(req) {
+function require_technician(req) {
     require_client(req);
-    if (!req.session.is_trainer && !req.session.is_admin) {
-        throw error(403, "Must be trainer");
+    if (!req.session.is_technician) {
+        throw error(403, "Must be technician");
     }
 }
 
@@ -103,10 +103,37 @@ function require_admin(req) {
 function require_body(req, attrs) {
     for (let attr of attrs) {
         if (req.body[attr] === undefined) {
-            throw utils.error(400, "Missing " + attr);
+            throw error(400, "Missing " + attr);
         }
     }
 }
+
+// autovivify a'la perl
+// https://dev.to/a2triple/autovivification-in-javascript-3c5p
+function av(obj = {}) {
+    return new Proxy(obj, {
+        get: (target, name) => {
+            if (name === "toJSON") {
+                return () => target;
+            }
+            else if (name === "toBSON") {
+                return () => target;
+            }
+            else {
+                return name in target ?  target[name] : target[name] = av();
+            }
+        },
+    });
+}
+
+// string to bool
+function s2bool(s) {
+    if (s === undefined)
+        return false;
+    // in case of "...&is_whatever&..." the empty value also means true
+    return (s === "") || (s === "true") || (s === true);
+}
+
 
 function dump_request(req) {
     // https://expressjs.com/en/guide/routing.html
@@ -147,9 +174,11 @@ module.exports = {
     promisify,
     mwrap,
     require_client,
-    require_trainer,
+    require_technician,
     require_admin,
     require_body,
+    av,
+    s2bool,
     dump_request,
 }
 
