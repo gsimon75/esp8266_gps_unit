@@ -1,4 +1,6 @@
-import {cfaSignIn, cfaSignOut } from 'capacitor-firebase-auth';
+import {cfaSignIn, cfaSignOut } from "capacitor-firebase-auth";
+import { EventBus } from "@/modules/event-bus";
+//const WebSocket = require("ws");
 
 const web_app_config = {
     apiKey: "AIzaSyAa8vGbPDQDOtF4cjKqYa_b99hK7KSPqBI",
@@ -11,6 +13,7 @@ const web_app_config = {
 };
 
 function user_has_logged_in(context) {
+    console.log("user_has_logged_in()");
     const user = context.rootState.auth_plugin.auth().currentUser;
     return user.getIdToken(true).then(idToken => {
         context.commit("logged_in", {
@@ -21,6 +24,7 @@ function user_has_logged_in(context) {
             provider_id: user.providerId,
             uid: user.uid,
         });
+        return context.dispatch("sign_in_to_backend", idToken);
     });
 }
 
@@ -78,10 +82,12 @@ export default {
 
             prepare.then(() => {
                 var webPlugin = require("firebase/app");
+                console.log("webPlugin=" + webPlugin);
                 context.commit("set_auth_plugin", webPlugin);
 
-                require("firebase/auth");
                 webPlugin.initializeApp(web_app_config);
+
+                require("firebase/auth");
                 webPlugin.auth().useDeviceLanguage(); // or: webPlugin.auth().languageCode = "pt";
                 if (typeof cordova === "undefined") {
                     // platform: web
@@ -105,20 +111,56 @@ export default {
             });
         },
         sign_out(context) {
-            if (typeof cordova !== "undefined") {
-                // platform: mobile
-                return cfaSignOut().subscribe();
-            }
-            else {
-                // platform: web
-                return context.rootState.auth_plugin.auth().signOut();
-            }
+            console.log("sign_out()");
+            context.commit("set_signin_state", false);
+            return context.rootState.ax.get("v0/logout").then(() => {
+                console.log("Signed out from backend");
+                EventBus.$emit("signed-out");
+                if (typeof cordova !== "undefined") {
+                    // platform: mobile
+                    return cfaSignOut().subscribe();
+                }
+                else {
+                    // platform: web
+                    return context.rootState.auth_plugin.auth().signOut();
+                }
+            });
+        },
+        sign_in_to_backend(context, id_token) {
+            console.log("Signing in to backend");
+            //context.rootState.ax.defaults.headers.common["Authorization"] = "Bearer " + id_token;
+            context.rootState.ax.get("v0/whoami", { headers: { Authorization: "Bearer " + id_token}, }).then(result => {
+                console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
+
+                // ==============================================================================
+                // https://javascript.info/server-sent-events
+                // https://developer.mozilla.org/en-US/docs/Web/API/EventSource
+                var source = new EventSource("/v0/event");
+                ["station", "unit_location", "unit_battery", "unit_status"].forEach(t => {
+                    let listener = event => {
+                        console.log("sse incoming " + t + ": " + event.data);
+                        EventBus.$emit(t, JSON.parse(event.data));
+                    };
+                    source.addEventListener(t, listener, false);
+                });
+                source.addEventListener("end", event => {
+                    console.log("sse wants to close the connection: " + event.data);
+                    source.close();
+                }, false);
+                // ==============================================================================
+
+                EventBus.$emit("signed-in", { yadda: 42 });
+                setImmediate(() => context.commit("set_signin_state", true));
+            }).catch(err => {
+                console.log("Failed to sign in to backend: " + err);
+            });
         },
         sign_in_with_google(context) {
             if (typeof cordova !== "undefined") {
                 // platform: mobile
                 return new Promise((resolve, reject) => {
                     try {
+                        console.log("calling cfaSignIn()");
                         cfaSignIn('google.com').subscribe(user => {
                             console.log(JSON.stringify(user));
                             user.getIdToken(true).then(idToken => {
@@ -130,7 +172,9 @@ export default {
                                     provider_id: user.providerId,
                                     uid: user.uid,
                                 });
-                                resolve();
+                                context.dispatch("sign_in_to_backend", idToken).then(() => {
+                                    resolve();
+                                });
                             });
                         });
                     }
@@ -141,6 +185,7 @@ export default {
             }
             else {
                 // platform: web
+                console.log("calling context.rootState.auth_plugin.auth.GoogleAuthProvider()");
                 var provider = new context.rootState.auth_plugin.auth.GoogleAuthProvider();
                 provider.setCustomParameters({
                     access_type: "offline",
