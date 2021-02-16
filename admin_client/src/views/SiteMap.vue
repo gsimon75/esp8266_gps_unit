@@ -208,8 +208,6 @@ export default {
     },
     data () {
         return {
-            //tile_url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            //tile_attribution: "&copy; <a href=\"http://osm.org/copyright\">OpenStreetMap</a> contributors",
             tile_url: "https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}",
             tileLayerOptions: {
                 attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
@@ -259,9 +257,6 @@ export default {
             this.currentCenter = center;
         },
         user_drag: function() {
-        },
-        style_extractor: function (feature) {
-            return feature.properties;
         },
         unit_cluster_icon: function (cluster) {
             var childCount = cluster.getChildCount();

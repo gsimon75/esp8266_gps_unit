@@ -23,29 +23,28 @@ import VuexPersist from "vuex-persist";
 import VueRouter from "vue-router";
 Vue.use(VueRouter);
 
-import "./assets/Roboto.css";
-import "./assets/fontawesome5.all.css";
+import "@/assets/Roboto.css";
+import "@/assets/fontawesome5.all.css";
 import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 import App from "./App.vue";
 
-import ExitGuard from "./views/ExitGuard.vue";
-import NotFound from "./views/NotFound.vue";
-import SignIn from "./views/SignIn.vue";
-import Home from "./views/Home.vue";
-import TakeScooter from "./views/TakeScooter.vue";
-import ReturnScooter from "./views/ReturnScooter.vue";
-import SiteMap from "./views/SiteMap.vue";
-import Account from "./views/Account.vue";
+import ExitGuard from "@/views/ExitGuard.vue";
+import NotFound from "@/views/NotFound.vue";
+import SignIn from "@/views/SignIn.vue";
+import Home from "@/views/Home.vue";
+import SiteMap from "@/views/SiteMap.vue";
+import TakeScooter from "@/views/TakeScooter.vue";
+import ReturnScooter from "@/views/ReturnScooter.vue";
+import Account from "@/views/Account.vue";
 
 import { latLng } from "leaflet";
 
 import { Plugins } from "@capacitor/core";
 const { SplashScreen } = Plugins;
 
-import auth from "./modules/auth";
-
-import { nearest_station, stations } from "./modules/geoshapes";
+import auth from "@/modules/auth";
 
 const vuexLocalStorage = new VuexPersist({
     key: "vuex",
@@ -53,11 +52,33 @@ const vuexLocalStorage = new VuexPersist({
     modules: ["auth"],
 });
        
+const axios = require("axios");
+const http = require("http");
+const httpAgent = new http.Agent({ keepAlive: true });
+
+const ax = axios.create({ httpAgent, withCredentials: true });
+
+ax.interceptors.response.use(function (response) {
+    return response;
+}, function (error) {
+    // [2021-02-14T12:43:20.627] [DEBUG] utils - error = {"status":403,"error":{"code":"auth/id-token-expired","message":"Firebase ID token has expired. Get a fresh ID token from your client app and try again (auth/id-token-expired). See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."}}
+    // axios intercepted response: {"message":"Request failed with status code 403","name":"Error","stack":"Error: Request failed with status code 403\n    at createError (webpack-internal:///./node_modules/axios/lib/core/createError.js:16:15)\n    at settle (webpack-internal:///./node_modules/axios/lib/core/settle.js:17:12)\n    at XMLHttpRequest.handleLoad (webpack-internal:///./node_modules/axios/lib/adapters/xhr.js:62:7)","config":{"url":"/v0/unit/trace/Simulated?before=1613306600&num=8","method":"get","headers":{"Accept":"application/json, text/plain, */*","Authorization":"Bearer eyJ..."},"transformRequest":[null],"transformResponse":[null],"timeout":0,"withCredentials":true,"xsrfCookieName":"XSRF-TOKEN","xsrfHeaderName":"X-XSRF-TOKEN","maxContentLength":-1,"maxBodyLength":-1,"httpAgent":{}}}
+    console.log("axios intercepted, error.response: " + JSON.stringify(error.response));
+    for (let x in error) {
+        console.log("for ... in error found: " + x);
+    }
+    console.log("keys of error: " + JSON.stringify(Object.keys(error)));
+    console.log("own props of error: " + JSON.stringify(Object.getOwnPropertyNames(error)));
+    return Promise.reject(error);
+});
+
 const station_proximity_range = 10; // meters
 
 const store = new Vuex.Store({
     state: {
+        ax,
         is_started: false,
+        sign_in_ready: false,
         app_bar_info: "...",
         auth_plugin: null,
         db: null,
@@ -86,6 +107,9 @@ const store = new Vuex.Store({
         },
         set_db(state, x) {
             state.db = x;
+        },
+        set_signin_state(state, value) {
+            state.sign_in_ready = value;
         },
         next_scooter_id(state) {
             state.fake_scooter_id_generator += 1 + Math.floor(Math.random() * 8);
@@ -238,16 +262,30 @@ const waitForStorageToBeReady = async (to, from, next) => {
 }
 router.beforeEach(waitForStorageToBeReady);
 
-// let the geo-dependent stuff know about the router and the store
-import { register_context as register_geo } from "./modules/geoshapes";
-register_geo(router, store);
-
 // main initialization starts here
 store.dispatch("init_auth_plugin").catch(error => {
     console.log("Could not sign in with persisted data: " + error.message);
     store.commit("logged_out");
 }).then(() => {
     if (typeof cordova !== "undefined") {
+        // current location handler
+        // https://capacitorjs.com/docs/apis/geolocation#geolocationposition
+        const watch_location = function (loc, err) {
+            if (err) {
+                console.log("watch_location err=" + err);
+            }
+            else {
+                console.log("loc.timestamp=" + loc.timestamp);
+                console.log("loc.latitude=" + loc.latitude);
+                console.log("loc.longitude=" + loc.longitude);
+            }
+        }
+
+        var location_watcher = Geolocation.watchPosition({ enableHighAccuracy: true, },watch_location);
+        console.log("location_watcher=" + location_watcher);
+        // Geolocation.clearWatch({id: location_watcher});
+
+
         //store.dispatch("open_db"); // FIXME: not in this mock
             /*
             console.log("registering onTokenRefresh handler");

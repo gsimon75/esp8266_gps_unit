@@ -30,7 +30,7 @@
                     <v-list-item-content>Account</v-list-item-content>
                 </v-list-item>
 
-                <v-list-item to="/signin">
+                <v-list-item to="/signin" v-if="!$store.getters.is_logged_in">
                     <v-list-item-icon><v-icon>fas fa-sign-in-alt</v-icon></v-list-item-icon>
                     <v-list-item-content>Sign in</v-list-item-content>
                 </v-list-item>
@@ -78,7 +78,6 @@ export default {
         font-family: Avenir, Helvetica, Arial, sans-serif;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        text-align: center;
         color: #2c3e50;
     }
 

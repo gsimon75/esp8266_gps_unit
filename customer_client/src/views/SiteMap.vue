@@ -1,17 +1,18 @@
 <template>
-    <div class="site-map fill-height">
+    <div class="site-map fill-height" :style="cssVars">
         <l-map
             ref="site_map" @ready="map_is_ready"
             :zoom="currentZoom"
             :center="currentCenter"
             :options="mapOptions"
-            :noBlockingAnimations="false"
+            :noBlockingAnimations="true"
             style="height: 100%"
             @update:center="centerUpdate"
             @update:zoom="zoomUpdate"
             @dragstart="user_drag"
         >
             <l-control-scale position="topright" :imperial="false" :metric="true"/>
+            <l-tile-layer :url="tile_url" :options="tileLayerOptions"/>
             <l-control position="bottomleft" >
                 <v-btn small color="primary" @click="nearest_to_take">Nearest<br>to take</v-btn>
                 <v-btn small color="error" @click="nearest_to_return">Nearest<br>to return</v-btn>
@@ -19,13 +20,14 @@
             <l-control position="bottomright" >
                 <v-btn fab color="primary" @click="enable_auto_center"><v-icon>fas fa-crosshairs</v-icon></v-btn>
             </l-control>
-            <l-tile-layer :url="tile_url" :attribution="tile_attribution"/>
-            <l-geo-json :geojson="shops" :optionsStyle="style_extractor"/>
-            <l-marker ref="current_pos" :icon="($store.getters.scooters_in_use.length > 0) ? icon_biking : null" :lat-lng="$store.state.current_location"/>
 
-            <template v-for="st in stations">
-                <l-marker :lat-lng="st.loc" :key="st.id">
-                    <l-icon :icon-size="[40, 36]">
+            <v-marker-cluster>
+            <template v-for="(st, name) in stations">
+                <l-marker :lat-lng="st.loc" :key="st.id" @click="station_clicked(name)">
+                    <l-clickable-tooltip @click="station_clicked(name)">
+                        {{ name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
+                    </l-clickable-tooltip>
+                    <!--l-icon :icon-size="[40, 36]">
                         <v-badge color="blue" :content="st.id" left>
                         <v-badge :value="st.ready" color="green" :content="st.ready" overlap>
                         <v-badge :value="st.free" color="red" :content="st.free" bottom overlap>
@@ -35,9 +37,12 @@
                         </v-badge>
                         </v-badge>
                         </v-badge>
-                    </l-icon>
+                    </l-icon-->
                 </l-marker>
             </template>
+            </v-marker-cluster>
+
+            <l-marker ref="current_pos" :icon="($store.getters.scooters_in_use.length > 0) ? icon_biking : null" :lat-lng="$store.state.current_location"/>
         </l-map>
 
     </div>
@@ -45,8 +50,12 @@
 
 <script>
 // @ is an alias to /src
+import { EventBus } from "@/modules/event-bus";
 import L from "leaflet";
-import { LMap, LControl, LControlScale, LTileLayer, LGeoJson, LMarker, LIcon } from "vue2-leaflet";
+import { latLng } from "leaflet";
+import { LMap, LControl, LControlScale, LTileLayer, LMarker } from "vue2-leaflet";
+import Vue2LeafletMarkerCluster from "vue2-leaflet-markercluster";
+import LClickableTooltip from "@/components/LClickableTooltip";
 
 /* NOTE: when navigating away from this view, exceptions will be thrown:
    leaflet-src.js:2449 Uncaught TypeError: Cannot read property '_leaflet_pos' of undefined
@@ -78,7 +87,6 @@ const icon_biking = L.icon({
     iconAnchor: [ 26, 41 ],
 });
 
-import { norm2latlng, nearest_station, shops, stations } from "../modules/geoshapes";
 
 export default {
     name: "SiteMap",
@@ -87,17 +95,24 @@ export default {
         LControl,
         LControlScale,
         LTileLayer,
-        LGeoJson,
         LMarker,
-        LIcon,
+        LClickableTooltip,
+        "v-marker-cluster": Vue2LeafletMarkerCluster,
     },
     data () {
         return {
-            tile_url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            tile_attribution: "&copy; <a href=\"http://osm.org/copyright\">OpenStreetMap</a> contributors",
+            tile_url: "https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}",
+            tileLayerOptions: {
+                attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+                maxZoom: 23,
+                zoomOffset: -1,
+                id: "mapbox/streets-v11",
+                tileSize: 512,
+                accessToken: "pk.eyJ1IjoiZ3NpbW9uNzUiLCJhIjoiY2trc2xuczl3MGVwNzJ2cGx0bDdlZnRoNCJ9.ZGCgtuQhE9AaNvxHaAYD6w",
+            },
             map: false,
-            currentCenter: norm2latlng([0.5, 0.5]),
-            currentZoom: 17,
+            currentCenter: latLng(25.1, 55.2),
+            currentZoom: 11,
             icon_biking,
             mapOptions: {
                 zoomSnap: 0.5
@@ -105,9 +120,15 @@ export default {
             auto_center: true,
             centering_in_progress: true,
             center_timer: null,
-            shops,
-            stations,
+            stations: [],
         };
+    },
+    computed: {
+        cssVars() {
+            // https://www.telerik.com/blogs/passing-variables-to-css-on-a-vue-component
+            return {
+            };
+        },
     },
     watch: {
         "$store.state.current_location": function (loc) {
@@ -134,33 +155,52 @@ export default {
         enable_auto_center: function() {
             this.auto_center = true;
         },
-        style_extractor: function (feature) {
-            return feature.properties;
-        },
         nearest_to_take: function () {
-            const best_station = nearest_station(stations.filter(st => st.ready > 0));
+            /*const best_station = nearest_station(this.stations.filter(st => st.ready > 0));
             if (best_station !== undefined) {
                 console.log("nearest_to_take: " + JSON.stringify(best_station));
                 this.auto_center = false;
                 this.$refs.site_map.setCenter(best_station.loc);
-            }
+            }*/
         },
         nearest_to_return: function () {
-            const best_station = nearest_station(stations.filter(st => st.free > 0));
+            /*const best_station = nearest_station(this.stations.filter(st => st.free > 0));
             if (best_station !== undefined) {
                 console.log("nearest_to_take: " + JSON.stringify(best_station));
                 this.auto_center = false;
                 this.$refs.site_map.setCenter(best_station.loc);
-            }
+            }*/
+        },
+        fetch_locations: function () {
+            console.log("Fetching location data");
+            this.$store.state.ax.get("/v0/station").then(response => {
+                // response.status == 200
+                var newstations = {}
+                for (var st of response.data) {
+                    // {"_id":"6016822fcbe5bf1db53ae6c2","id":3825891566,"lat":25.1850197,"lon":55.2652917,"name":"The Health Spot Cafe","capacity":14,"in_use":0}
+                    delete st._id;
+                    st.free = st.capacity - st.in_use;
+                    st.ready = st.in_use;
+                    st.charging = 0; // TODO: distinguish charging vs. ready
+                    st.loc = latLng(st.lat, st.lon);
+                    newstations[st.name] = st;
+                }
+                this.stations = newstations;
+            });
         },
     },
     created: function() {
-        console.log("SiteMap created");
+        console.log("SiteMap created, store.state.sign_in_ready=" + this.$store.state.sign_in_ready);
         // this.$refs.site_map.mapObject.ANY_LEAFLET_MAP_METHOD();
         if (!this.$store.getters.is_logged_in) {
             console.log("Not signed in, proceed to sign-in");
             this.$router.push("/signin");
         }
+        EventBus.$on("signed-in", this.fetch_locations);
+        if (this.$store.state.sign_in_ready) {
+            this.fetch_locations();
+        }
+        this.$store.state.app_bar_info = "Stations";
     },
     beforeDestroy: function () {
         this.$store.state.app_bar_info = "..."

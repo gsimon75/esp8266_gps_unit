@@ -3,6 +3,9 @@ const router = express.Router();
 const db = require("../database");
 const logger = require("../logger").getLogger("client");
 const utils = require("../utils");
+const events = require("../events");
+
+const fba = require("firebase-admin");
 
 
 function op_healthz(req) {
@@ -14,17 +17,20 @@ function op_healthz(req) {
 
 function op_whoami(req) {
     logger.debug("GET whoami");
-    return {
-        uid: req.session.uid,
-        euid: req.session.euid,
+    const result = {
+        email: req.session.email,
+        name: req.session.name,
+        provider: req.session.provider,
     };
+    logger.debug("Session vars: " + JSON.stringify(result));
+    return result;
 }
 
 
 function op_logout(req) {
     logger.debug("GET logout");
-    req.session.uid = req.session.euid = -1;
-    return null;
+    req.session.destroy();
+    return "ok";
 }
 
 
@@ -36,9 +42,12 @@ router.get("/whoami",           (req, res, next) => utils.mwrap(req, res, next, 
 router.get("/logout",           (req, res, next) => utils.mwrap(req, res, next, () => op_logout(req)));
 
 // client ops
-//router.use("/station", require("./station"));
+router.use("/station", require("./station"));
 router.use("/available", require("./available")); // available units
 
+router.use("/station", require("./station"));
+
+router.get("/event", (req, res) => events.dispatcher(req, res, events.customer_event_emitter));
 
 module.exports = router;
 
