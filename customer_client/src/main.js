@@ -42,8 +42,9 @@ import Account from "@/views/Account.vue";
 import { latLng } from "leaflet";
 
 import { Plugins } from "@capacitor/core";
-const { SplashScreen } = Plugins;
+const { SplashScreen, Geolocation } = Plugins;
 
+import { EventBus } from "@/modules/event-bus";
 import auth from "@/modules/auth";
 
 const vuexLocalStorage = new VuexPersist({
@@ -72,8 +73,6 @@ ax.interceptors.response.use(function (response) {
     return Promise.reject(error);
 });
 
-const station_proximity_range = 10; // meters
-
 const store = new Vuex.Store({
     state: {
         ax,
@@ -83,6 +82,7 @@ const store = new Vuex.Store({
         auth_plugin: null,
         db: null,
         current_location: latLng(0, 0),
+        stations: {},
         fake_scooter_id_generator: 0,
         scooters_in_use: [],
         near_station: null,
@@ -94,9 +94,6 @@ const store = new Vuex.Store({
         scooter_id(state, getters, rootState) { // eslint-disable-line no-unused-vars
             return state.fake_scooter_id_generator;
         },
-        scooters_in_use(state, getters, rootState) { // eslint-disable-line no-unused-vars
-            return state.scooters_in_use;
-        }
     },
     mutations: {
         mark_started(state, x) {
@@ -110,6 +107,29 @@ const store = new Vuex.Store({
         },
         set_signin_state(state, value) {
             state.sign_in_ready = value;
+        },
+        set_location(state, loc) {
+            state.current_location = loc;
+            /*if (state.near_station) {
+                const dist = loc.distanceTo(state.near_station.loc);
+                if (dist > station_proximity_range) {
+                    console.log("Leaving station");
+                    state.near_station = null;
+                }
+            }
+            else {
+                const best_station = nearest_station(stations);
+                if ((best_station !== undefined) && (best_station.d <= station_proximity_range)) {
+                    const st = stations.find(st => st.id == best_station.id);
+                    if (st !== undefined) {
+                        state.near_station = st;
+                        console.log("Entering station " + st.id);
+                    }
+                    else {
+                        state.near_station = null;
+                    }
+                }
+            }*/
         },
         next_scooter_id(state) {
             state.fake_scooter_id_generator += 1 + Math.floor(Math.random() * 8);
@@ -131,29 +151,6 @@ const store = new Vuex.Store({
                 }
             }
         },
-        set_location(state, loc) {
-            state.current_location = loc;
-            if (state.near_station) {
-                const dist = loc.distanceTo(state.near_station.loc);
-                if (dist > station_proximity_range) {
-                    console.log("Leaving station");
-                    state.near_station = null;
-                }
-            }
-            else {
-                const best_station = nearest_station(stations);
-                if ((best_station !== undefined) && (best_station.d <= station_proximity_range)) {
-                    const st = stations.find(st => st.id == best_station.id);
-                    if (st !== undefined) {
-                        state.near_station = st;
-                        console.log("Entering station " + st.id);
-                    }
-                    else {
-                        state.near_station = null;
-                    }
-                }
-            }
-        },
     },
     actions: {
         open_db(context) {
@@ -171,6 +168,26 @@ const store = new Vuex.Store({
                     context.commit("set_db", null);
                 }
             );
+        },
+        fetch_stations(context) {
+            console.log("Fetching stations");
+            context.state.ax.get("/v0/station").then(response => {
+                // response.status == 200
+                let newstations = {}
+                let n = 0;
+                for (var st of response.data) {
+                    // {"_id":"6016822fcbe5bf1db53ae6c2","id":3825891566,"lat":25.1850197,"lon":55.2652917,"name":"The Health Spot Cafe","capacity":14,"in_use":0}
+                    newstations[st._id] = {
+                        free: st.capacity - st.in_use,
+                        ready: st.in_use,
+                        charging: 0, // TODO: distinguish charging vs. ready
+                        loc: latLng(st.lat, st.lon),
+                    };
+                    n++;
+                }
+                console.log("Fetched " + n + " stations");
+                context.state.stations = newstations;
+            });
         },
     },
     modules: {
@@ -278,6 +295,7 @@ store.dispatch("init_auth_plugin").catch(error => {
                 console.log("loc.timestamp=" + loc.timestamp);
                 console.log("loc.latitude=" + loc.latitude);
                 console.log("loc.longitude=" + loc.longitude);
+                store.commit("set_location", latLng(loc.latitude, loc.longitude));
             }
         }
 
@@ -309,6 +327,20 @@ store.dispatch("init_auth_plugin").catch(error => {
             checkNotificationPermission(false); // Check permission then get FCM token / push notifications
             */
     }
+    else {
+        store.commit("set_location", latLng(25.2, 55.3)); // Dubai
+        EventBus.$on("unit_location", u => {
+            console.log("Updating unit location " + JSON.stringify(u));
+            if (u.name == "Simulated") {
+                let loc = latLng(u.lat, u.lon);
+                store.commit("set_location", loc);
+            }
+        });
+    }
+
+    EventBus.$on("signed-in", () => {
+        store.dispatch("fetch_stations");
+    });
 
     // Initialization of the ui
     console.log("Launching UI");

@@ -20,10 +20,10 @@
             </l-control>
 
             <v-marker-cluster>
-            <template v-for="(st, name) in stations">
-                <l-marker :lat-lng="st.loc" :key="st.id" @click="station_clicked(name)">
-                    <l-clickable-tooltip @click="station_clicked(name)">
-                        {{ name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
+            <template v-for="(st, id) in stations">
+                <l-marker :lat-lng="st.loc" :key="id" @click="station_clicked(id)">
+                    <l-clickable-tooltip @click="station_clicked(id)">
+                        {{ st.name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
                     </l-clickable-tooltip>
                 </l-marker>
             </template>
@@ -272,12 +272,13 @@ export default {
                 var newstations = {}
                 for (var st of response.data) {
                     // {"_id":"6016822fcbe5bf1db53ae6c2","id":3825891566,"lat":25.1850197,"lon":55.2652917,"name":"The Health Spot Cafe","capacity":14,"in_use":0}
-                    delete st._id;
-                    st.free = st.capacity - st.in_use;
-                    st.ready = st.in_use;
-                    st.charging = 0; // TODO: distinguish charging vs. ready
-                    st.loc = latLng(st.lat, st.lon);
-                    newstations[st.name] = st;
+                    newstations[st._id] = {
+                        _id: st._id,
+                        free: st.capacity - st.in_use,
+                        ready: st.in_use,
+                        charging: 0, // TODO: distinguish charging vs. ready
+                        loc: latLng(st.lat, st.lon),
+                    };
                 }
                 this.stations = newstations;
             });
@@ -362,8 +363,8 @@ export default {
             });
         },
 
-        station_clicked: function (st) {
-            this.selected_station = this.stations[st];
+        station_clicked: function (id) {
+            this.selected_station = this.stations[id];
             this.showing_station_details = true;
         },
         unit_clicked: function (u) {

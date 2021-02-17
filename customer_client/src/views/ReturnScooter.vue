@@ -7,7 +7,7 @@
         </div>
 
         <v-list>
-            <v-list-item v-for="(id, idx) in $store.getters.scooters_in_use" :key="id" :class="(idx & 1) ? 'odd' : 'even'">
+            <v-list-item v-for="(id, idx) in $store.state.scooters_in_use" :key="id" :class="(idx & 1) ? 'odd' : 'even'">
                 <v-list-item-content>
                     <span class="text-left">Scooter #{{ id }}</span>
                     <span class="text-right">0:23</span>
@@ -35,7 +35,7 @@ export default {
     methods: {
         return_scooter: function (id) {
             this.$store.commit("return_scooter", id);
-            if (this.$store.getters.scooters_in_use.length == 0) {
+            if (this.$store.state.scooters_in_use.length == 0) {
                 this.$router.back();
             }
         },
