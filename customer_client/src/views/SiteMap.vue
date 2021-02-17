@@ -22,10 +22,10 @@
             </l-control>
 
             <v-marker-cluster>
-            <template v-for="(st, name) in stations">
-                <l-marker :lat-lng="st.loc" :key="st.id" @click="station_clicked(name)">
-                    <l-clickable-tooltip @click="station_clicked(name)">
-                        {{ name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
+            <template v-for="(st, id) in $store.state.stations">
+                <l-marker :lat-lng="st.loc" :key="id" @click="station_clicked(id)">
+                    <l-clickable-tooltip @click="station_clicked(id)">
+                        {{ st.name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
                     </l-clickable-tooltip>
                     <!--l-icon :icon-size="[40, 36]">
                         <v-badge color="blue" :content="st.id" left>
@@ -42,7 +42,7 @@
             </template>
             </v-marker-cluster>
 
-            <l-marker ref="current_pos" :icon="($store.getters.scooters_in_use.length > 0) ? icon_biking : null" :lat-lng="$store.state.current_location"/>
+            <l-marker ref="current_pos" :icon="($store.state.scooters_in_use.length > 0) ? icon_biking : null" :lat-lng="$store.state.current_location"/>
         </l-map>
 
     </div>
@@ -120,7 +120,6 @@ export default {
             auto_center: true,
             centering_in_progress: true,
             center_timer: null,
-            stations: [],
         };
     },
     computed: {
@@ -153,6 +152,7 @@ export default {
             this.auto_center = false;
         },
         enable_auto_center: function() {
+            this.$refs.site_map.setCenter(this.$store.state.current_location);
             this.auto_center = true;
         },
         nearest_to_take: function () {
@@ -171,23 +171,6 @@ export default {
                 this.$refs.site_map.setCenter(best_station.loc);
             }*/
         },
-        fetch_locations: function () {
-            console.log("Fetching location data");
-            this.$store.state.ax.get("/v0/station").then(response => {
-                // response.status == 200
-                var newstations = {}
-                for (var st of response.data) {
-                    // {"_id":"6016822fcbe5bf1db53ae6c2","id":3825891566,"lat":25.1850197,"lon":55.2652917,"name":"The Health Spot Cafe","capacity":14,"in_use":0}
-                    delete st._id;
-                    st.free = st.capacity - st.in_use;
-                    st.ready = st.in_use;
-                    st.charging = 0; // TODO: distinguish charging vs. ready
-                    st.loc = latLng(st.lat, st.lon);
-                    newstations[st.name] = st;
-                }
-                this.stations = newstations;
-            });
-        },
     },
     created: function() {
         console.log("SiteMap created, store.state.sign_in_ready=" + this.$store.state.sign_in_ready);
@@ -196,10 +179,9 @@ export default {
             console.log("Not signed in, proceed to sign-in");
             this.$router.push("/signin");
         }
-        EventBus.$on("signed-in", this.fetch_locations);
-        if (this.$store.state.sign_in_ready) {
-            this.fetch_locations();
-        }
+        EventBus.$on("keepalive", () => {
+            console.log("keepalive...");
+        });
         this.$store.state.app_bar_info = "Stations";
     },
     beforeDestroy: function () {
