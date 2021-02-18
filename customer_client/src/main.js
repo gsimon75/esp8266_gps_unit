@@ -46,6 +46,7 @@ const { SplashScreen, Geolocation } = Plugins;
 
 import { EventBus } from "@/modules/event-bus";
 import auth from "@/modules/auth";
+import data from "@/modules/data";
 
 const vuexLocalStorage = new VuexPersist({
     key: "vuex",
@@ -80,19 +81,13 @@ const store = new Vuex.Store({
         sign_in_ready: false,
         app_bar_info: "...",
         auth_plugin: null,
-        db: null,
         current_location: latLng(0, 0),
-        stations: {},
-        fake_scooter_id_generator: 0,
         scooters_in_use: [],
         near_station: null,
     },
     getters: {
         app_type(state, getters, rootState) { // eslint-disable-line no-unused-vars
             return (typeof cordova === "undefined") ? "web" : "mobile";
-        },
-        scooter_id(state, getters, rootState) { // eslint-disable-line no-unused-vars
-            return state.fake_scooter_id_generator;
         },
     },
     mutations: {
@@ -101,9 +96,6 @@ const store = new Vuex.Store({
         },
         set_auth_plugin(state, x) {
             state.auth_plugin = x;
-        },
-        set_db(state, x) {
-            state.db = x;
         },
         set_signin_state(state, value) {
             state.sign_in_ready = value;
@@ -131,9 +123,6 @@ const store = new Vuex.Store({
                 }
             }*/
         },
-        next_scooter_id(state) {
-            state.fake_scooter_id_generator += 1 + Math.floor(Math.random() * 8);
-        },
         take_scooter(state, id) {
             state.scooters_in_use.push(id);
             if (state.near_station && (state.near_station.ready > 0)) {
@@ -153,45 +142,10 @@ const store = new Vuex.Store({
         },
     },
     actions: {
-        open_db(context) {
-            window.sqlitePlugin.openDatabase({
-                    name: "saga.db",
-                    location: "default",
-                    createFromLocation: 1,
-                },
-                db => {
-                    console.log("db opened OK");
-                    context.commit("set_db", db);
-                },
-                error => {
-                    alert("db open failed: " + error);
-                    context.commit("set_db", null);
-                }
-            );
-        },
-        fetch_stations(context) {
-            console.log("Fetching stations");
-            context.state.ax.get("/v0/station").then(response => {
-                // response.status == 200
-                let newstations = {}
-                let n = 0;
-                for (var st of response.data) {
-                    // {"_id":"6016822fcbe5bf1db53ae6c2","id":3825891566,"lat":25.1850197,"lon":55.2652917,"name":"The Health Spot Cafe","capacity":14,"in_use":0}
-                    newstations[st._id] = {
-                        free: st.capacity - st.in_use,
-                        ready: st.in_use,
-                        charging: 0, // TODO: distinguish charging vs. ready
-                        loc: latLng(st.lat, st.lon),
-                    };
-                    n++;
-                }
-                console.log("Fetched " + n + " stations");
-                context.state.stations = newstations;
-            });
-        },
     },
     modules: {
-        auth: auth,
+        auth,
+        data,
     },
     plugins: [vuexLocalStorage.plugin],
 });
@@ -339,7 +293,7 @@ store.dispatch("init_auth_plugin").catch(error => {
     }
 
     EventBus.$on("signed-in", () => {
-        store.dispatch("fetch_stations");
+        store.dispatch("data/fetch_stations");
     });
 
     // Initialization of the ui

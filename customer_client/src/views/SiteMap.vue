@@ -22,7 +22,7 @@
             </l-control>
 
             <v-marker-cluster>
-            <template v-for="(st, id) in $store.state.stations">
+            <template v-for="(st, id) in $store.state.data.stations">
                 <l-marker :lat-lng="st.loc" :key="id" @click="station_clicked(id)">
                     <l-clickable-tooltip @click="station_clicked(id)">
                         {{ st.name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
