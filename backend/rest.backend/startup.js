@@ -16,12 +16,14 @@ function op_startup(req) {
     if (!unit_cn) {
         throw utils.error(400, "SSL subject DN has no CN");
     }
+    let nonce = req.body.nonce;
+    if (!nonce) {
+        throw utils.error(400, "Missing nonce");
+    }
     let now = Math.round(new Date().getTime() / 1000);
-    let record = { ...req.body, unit: unit_cn[1], time: now };
-    // NOTE: it should contain the actual unit nonce
+    let record = { nonce, unit: unit_cn[1], time: now };
     logger.debug("startup(" + JSON.stringify(record) + ")");
-
-    return "ok"; // FIXME: do something with the nonce
+    return db.unit_startup().insertOne(record).then(() => null);
 }
 
 router.post("/",                (req, res, next) => utils.mwrap(req, res, next, () => op_startup(req)));
