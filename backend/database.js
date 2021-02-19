@@ -11,14 +11,13 @@ var client, db;
 var stations, users, agps; // state-like collections
 var unit_location, unit_battery, unit_startup, unit_status; // log-like collections
 
-async function open() {
+function open() {
     client = new MongoClient("mongodb://backend:...@localhost:27017/gps_tracker", {
         useNewUrlParser: true,
         useUnifiedTopology: true,
     });
 
-    try {
-        await client.connect();
+    return client.connect().then(() => {
         db = client.db("gps_tracker");
         stations = db.collection("stations");
         users = db.collection("users");
@@ -27,10 +26,7 @@ async function open() {
         unit_battery = db.collection("unit_battery");
         unit_startup = db.collection("unit_startup");
         unit_status = db.collection("unit_status");
-    }
-    catch (err) {
-        logger.error(err.stack);
-    }
+    });
 }
 
 function close() {
