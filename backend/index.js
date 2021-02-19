@@ -1,14 +1,13 @@
 const logger = require("./logger").getLogger("index");
-const utils = require("./utils");
-const db = require("./database");
-
-db.open()
-
 // Redirect exceptions to the log
 process.on("uncaughtException", (err) => {
     logger.fatal(err);
     //process.exit(1);
 });
+
+const utils = require("./utils");
+const db = require("./database");
+const cache = require("./cache");
 
 // Set up the Express engine
 const express = require("express");
@@ -136,9 +135,6 @@ server.on("listening", () => {
 });
 
 
-// Start listening
-server.listen(port);
-
 // hijack the server close *call*, so we can close the DB before returning from it
 // (the "close" event is asynchronous, it can't delay the closing process)
 server.orig_close = server.close;
@@ -155,6 +151,12 @@ server.close = function(callback) {
         .then(() => db.close())
         .then(() => this.orig_close(callback));
 };
+
+db.open().then(() => {
+    cache.start();
+    server.listen(port);
+});
+
 
 module.exports = server;
 
