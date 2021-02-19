@@ -62,14 +62,12 @@ function mwrap(req, res, next, handler) {
         }
     }).catch(err => {
         if (err instanceof HTTPError) {
-            logger.debug("error = " + JSON.stringify(err));
+            logger.debug("error " + err.status + ": " + err.message);
             res.status(err.status || 500);
             if (err.message) {
-                res.send(err.message);
+                res.statusMessage = err.message;
             }
-            else {
-                res.end();
-            }
+            res.end();
         }
         else {
             next(err);

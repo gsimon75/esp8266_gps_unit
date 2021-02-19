@@ -43,7 +43,7 @@ router.get("/logout",           (req, res, next) => utils.mwrap(req, res, next, 
 
 // client ops
 router.use("/station", require("./station"));
-router.use("/available", require("./available")); // available units
+router.use("/unit", require("./unit"));
 
 router.use("/station", require("./station"));
 

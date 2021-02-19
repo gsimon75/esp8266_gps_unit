@@ -42,8 +42,9 @@ function close() {
 }
 
 function cursor_all(c) {
-    let items = [];
-    return c.forEach(t => { items.push(t); }).then(() => items);
+    //let items = [];
+    //return c.forEach(t => { items.push(t); }).then(() => items);
+    return c.toArray();
 }
 
 module.exports = {
