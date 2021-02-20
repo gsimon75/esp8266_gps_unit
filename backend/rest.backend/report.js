@@ -30,8 +30,7 @@ function op_report(req) {
             azi: req.body.azi,
             spd: req.body.spd,
         }
-        events.admin_event_emitter.emit("sendit", "unit_location", record);
-        events.customer_event_emitter.emit("sendit", "unit_location", record);
+        events.emitter.emit("sendit", "unit_location", record);
         promises.push(db.unit_location().insertOne(record));
     }
     if ("bat" in req.body) {
@@ -40,8 +39,7 @@ function op_report(req) {
             time: now,
             bat: req.body.bat,
         }
-        events.admin_event_emitter.emit("sendit", "unit_battery", record);
-        events.customer_event_emitter.emit("sendit", "unit_battery", record);
+        events.emitter.emit("sendit", "unit_battery", record);
         promises.push(db.unit_battery().insertOne(record));
     }
 

@@ -329,38 +329,27 @@ export default {
             }
         },
 
-        unit_location_changed: function (u) {
-            console.log("Updating unit location " + JSON.stringify(u));
-            let loc = latLng(u.lat, u.lon);
-            this.$set(this.units, u.unit, {
-                ...this.units[u.unit],
-                location_time: u.time,
-                loc,
-                spd: u.spd,
-                spdt: (u.spd * 3.6).toFixed(1),
-                azi: u.azi,
-            });
-            if (this.selected_unit && (this.selected_unit.unit == u.unit) && this.showing_unit_track) {
-                this.selected_unit_track.shift(loc);
-                this.selected_unit_track.push(loc);
+        unit_changed: function (u) {
+            console.log("Updating unit " + JSON.stringify(u));
+            if (!u.unit || !this.units[u.unit]) {
+                return;
             }
-        },
-        unit_battery_changed: function (u) {
-            console.log("Updating unit battery " + JSON.stringify(u));
-            this.$set(this.units, u.unit, {
-                ...this.units[u.unit],
-                battery_time: u.time,
-                bat: u.bat,
-            });
-        },
-        unit_status_changed: function (u) {
-            console.log("Updating unit status " + JSON.stringify(u));
-            this.$set(this.units, u.unit, {
-                ...this.units[u.unit],
-                status_time: u.time,
-                status: u.status,
-                user: u.user,
-            });
+            for (let field of ["spd", "azi", "location_time", "bat", "battery_time", "status", "user", "status_time"]) {
+                if (u[field]) {
+                    this.$set(this.units[u.unit], field, u[field]);
+                }
+            }
+            if (u.spd) {
+                this.$set(this.units[u.unit], "spdt", (u.spd * 3.6).toFixed(1));
+            }
+            if (u.lat && u.lon) {
+                let loc = latLng(u.lat, u.lon);
+                this.$set(this.units[u.unit], "loc", loc);
+                if (this.selected_unit && (this.selected_unit.unit == u.unit) && this.showing_unit_track) {
+                    this.selected_unit_track.shift(loc);
+                    this.selected_unit_track.push(loc);
+                }
+            }
         },
 
         station_clicked: function (id) {
@@ -396,9 +385,7 @@ export default {
         if (this.$store.state.sign_in_ready) {
             this.fetch_locations();
         }
-        EventBus.$on("unit_location", this.unit_location_changed);
-        EventBus.$on("unit_battery", this.unit_battery_changed);
-        EventBus.$on("unit_status", this.unit_status_changed);
+        EventBus.$on("unit", this.unit_changed);
         this.$store.state.app_bar_info = "Stations & Units";
     },
     beforeDestroy: function () {

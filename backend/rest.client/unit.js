@@ -157,8 +157,7 @@ function op_take(req) {
             status: "in_use",
             user: req.session.email,
         };
-        events.admin_event_emitter.emit("sendit", "unit_status", record);
-        events.customer_event_emitter.emit("sendit", "unit_status", record);
+        events.emitter.emit("sendit", "unit_status", record);
         return null;
     });
 }
@@ -201,8 +200,7 @@ function op_return(req) {
             status: "available",
             user: null,
         };
-        events.admin_event_emitter.emit("sendit", "unit_status", record);
-        events.customer_event_emitter.emit("sendit", "unit_status", record);
+        events.emitter.emit("sendit", "unit_status", record);
         return null;
     });
 }

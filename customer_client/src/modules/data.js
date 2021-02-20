@@ -1,3 +1,4 @@
+import { latLng } from "leaflet";
 import { EventBus } from "@/modules/event-bus";
 
 export default {
@@ -5,6 +6,7 @@ export default {
     state: {
         db: null,
         stations: {},
+        units: {},
     },
     getters: {
     },

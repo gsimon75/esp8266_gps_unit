@@ -136,7 +136,7 @@ export default {
                 // https://javascript.info/server-sent-events
                 // https://developer.mozilla.org/en-US/docs/Web/API/EventSource
                 var source = new EventSource("/v0/event");
-                ["station", "unit_location", "unit_battery", "unit_status"].forEach(t => {
+                ["station", "unit"].forEach(t => {
                     let listener = event => {
                         console.log("sse incoming " + t + ": " + event.data);
                         EventBus.$emit(t, JSON.parse(event.data));
