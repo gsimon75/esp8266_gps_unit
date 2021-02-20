@@ -79,7 +79,7 @@ router.use("/user", require("./user"));
  */
 router.use("/station", require("./station"));
 
-router.get("/event", (req, res) => events.dispatcher(req, res, events.admin_event_emitter));
+router.get("/event", (req, res) => events.dispatcher(req, res, (etype, u) => (etype == "unit")));
 
 module.exports = router;
 

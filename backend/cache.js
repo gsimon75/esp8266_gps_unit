@@ -13,7 +13,7 @@ const pipe_last_records = [
 
 function upsert_location(u) {
     if (!(u.unit in unit_cache)) {
-        unit_cache[u.unit] = {};
+        unit_cache[u.unit] = { unit: u.unit, };
     }
     unit_cache[u.unit].location_time = u.time;
     unit_cache[u.unit].lat = u.lat;
@@ -40,17 +40,28 @@ function upsert_battery(u) {
 }
 
 let handler = (etype, data) => {
+    let send_composite = false;
+
     if (etype == null) {
         emitter.removeListener("sendit", handler);
     }
     else if (etype == "unit_location") {
         upsert_location(data);
+        send_composite = true;
     }
     else if (etype == "unit_status") {
         upsert_status(data);
+        send_composite = true;
     }
     else if (etype == "unit_battery") {
         upsert_battery(data);
+        send_composite = true;
+    }
+
+    if (send_composite) {
+        setImmediate(() => {
+            events.emitter.emit("sendit", "unit", unit_cache[data.unit]);
+        });
     }
 };
 
@@ -58,7 +69,7 @@ function start() {
     db.unit_location().aggregate(pipe_last_records).forEach(upsert_location);
     db.unit_status().aggregate(pipe_last_records).forEach(upsert_status);
     db.unit_battery().aggregate(pipe_last_records).forEach(upsert_battery);
-    events.admin_event_emitter.addListener("sendit", handler);
+    events.emitter.addListener("sendit", handler);
 }
 
 module.exports = {

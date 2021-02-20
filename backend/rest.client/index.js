@@ -49,21 +49,18 @@ router.use("/unit", require("./unit"));
 router.use("/station", require("./station"));
 
 function event_filter(session, etype, u) {
-    if ((etype == "unit_location") || (etype == "unit_status") || (etype == "unit_battery")) {
-        if (!u.unit || !cache.unit[u.unit]) {
-            return false; // unknown unit, don't propagate info about it
-        }
-        if (cache.unit[u.unit].user == session.email) {
+    if (etype == "unit") {
+        if (u.user == session.email) {
             return true; // notify the user about his units
         }
-        if ((cache.unit[u.unit].status == "available") || (cache.unit[u.unit].status == "charging")) {
+        if ((u.status == "available") || (u.status == "charging")) {
             return true; // notify the user about publicly available units
         }
     }
     return false; // strict policy: all blocked unless permitted explicitely
 }
 
-router.get("/event", (req, res) => events.dispatcher(req, res, events.customer_event_emitter, (etype, u) => event_filter(req.session, etype, u)));
+router.get("/event", (req, res) => events.dispatcher(req, res, (etype, u) => event_filter(req.session, etype, u)));
 
 module.exports = router;
 
