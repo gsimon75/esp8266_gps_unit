@@ -28,10 +28,13 @@ class MyHandler(xml.sax.ContentHandler):
         
     def startElement(self, name, attrs):
         if name == "node":
+            let lat = float(attrs["lat"]);
+            let lon = float(attrs["lon"]);
             self.poi = {
                 "id": int(attrs["id"]),
-                "lat": float(attrs["lat"]),
-                "lon": float(attrs["lon"]),
+                "lat": lat,
+                "lon": lon,
+                "lonlat": [ lon, lat ], # for 2d geospatial index
             }
         elif name == "tag":
             self.poi[attrs["k"]] = attrs["v"]

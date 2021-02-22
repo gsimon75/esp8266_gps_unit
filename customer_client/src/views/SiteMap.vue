@@ -18,7 +18,7 @@
                 <v-btn small color="error" @click="nearest_to_return">Nearest<br>to return</v-btn>
             </l-control>
             <l-control position="bottomright" >
-                <v-btn fab color="primary" @click="enable_auto_center"><v-icon>fas fa-crosshairs</v-icon></v-btn>
+                <v-btn fab color="primary" @click="toggle_auto_center" :outlined="!auto_center"><v-icon>fas fa-crosshairs</v-icon></v-btn>
             </l-control>
 
             <v-marker-cluster>
@@ -151,9 +151,11 @@ export default {
         user_drag: function() {
             this.auto_center = false;
         },
-        enable_auto_center: function() {
-            this.$refs.site_map.setCenter(this.$store.state.current_location);
-            this.auto_center = true;
+        toggle_auto_center: function() {
+            this.auto_center = !this.auto_center;
+            if (this.auto_center) {
+                this.$refs.site_map.setCenter(this.$store.state.current_location);
+            }
         },
         nearest_to_take: function () {
             /*const best_station = nearest_station(this.stations.filter(st => st.ready > 0));

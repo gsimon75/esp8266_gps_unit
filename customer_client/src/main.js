@@ -284,9 +284,9 @@ store.dispatch("init_auth_plugin").catch(error => {
     else {
         store.commit("set_location", latLng(25.2, 55.3)); // Dubai
         EventBus.$on("unit", u => {
-            console.log("Updating unit location " + JSON.stringify(u));
-            if ((u.name == "Simulated") && u.lat && u.lon) {
+            if ((u.unit == "Simulated") && u.lat && u.lon) {
                 let loc = latLng(u.lat, u.lon);
+                console.log("Updating unit location " + loc);
                 store.commit("set_location", loc);
             }
         });
