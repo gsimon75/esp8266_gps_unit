@@ -40,6 +40,12 @@ db.createCollection("stations")
 mongoimport -c stations --jsonArray mongodb://backend:...@localhost:27017/gps_tracker ../../misc/get_osm_poi/dubai_cafe.json
 db.stations.update({}, [{$addFields: {capacity: { $toInt: { $mod: [ "$id" , 16 ] } }, in_use: 0, }}, ], { multi: true, } )
 
+# (facepalm) all I want is: in_use = capacity & 0x05
+db.stations.update({}, [ {$set: {in_use: { $toLong: "$capacity"} }} ], {multi:true})
+db.stations.update({}, {$bit: {in_use: {and: NumberInt(5)}}}, {multi:true})
+db.stations.update({}, [ {$set: {in_use: { $toDouble: "$in_use"} }} ], {multi:true})
+
+
 # State: email, is_admin, is_technician
 db.createCollection("users")
 # is_technician: can query units, change unit statuses, can add/decommission units
@@ -63,6 +69,10 @@ db.units.insert({unit: "Unit 2", time: now, status: "available", user: null})
 db.units.insert({unit: "Unit 3", time: now, nonce: null, status: "offline", user: null})
 
 
+# geospatial index on stations
+db.stations.update({}, [{$set: {lonlat: ["$lon", "$lat"]}}], {multi: true})
+db.stations.createIndex( { lonlat: "2d" } )
+
 ```
 
 ## Commands
@@ -84,11 +94,9 @@ The same:
 Where are the units now:
 `db.traces.aggregate([{$sort: {time: -1}}, {$group: {_id: "$unit", trace: {$first: "$$CURRENT"} }}, {$replaceRoot: { newRoot: "$trace"}} ])`
 
-
-
-
-
-
+What stations are near a certain point:
+`db.stations.aggregate([ {$geoNear: {near: [55.1, 25.0], distanceField: "dist"} },  ])`
+`db.stations.aggregate([ {$geoNear: {near: [55.1, 25.0], distanceField: "dist", query: { capacity: {$gt: 10} } } },  ])`
 
 
 [//]: # ( vim: set sw=4 ts=4 et: )

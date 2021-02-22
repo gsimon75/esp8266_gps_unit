@@ -7,7 +7,6 @@ var keepalive_timer = setInterval(() => {
     // https://stackoverflow.com/questions/56450228/getting-neterr-incomplete-chunked-encoding-200-when-consuming-event-stream-usi
     // Stop bitching, chrome!
     emitter.emit("sendit", "keepalive", null);
-    customer_event_emitter.emit("sendit", "keepalive", null);
 }, 60 * 1000);
 
 
