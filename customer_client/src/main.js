@@ -102,26 +102,6 @@ const store = new Vuex.Store({
         },
         set_location(state, loc) {
             state.current_location = loc;
-            /*if (state.near_station) {
-                const dist = loc.distanceTo(state.near_station.loc);
-                if (dist > station_proximity_range) {
-                    console.log("Leaving station");
-                    state.near_station = null;
-                }
-            }
-            else {
-                const best_station = nearest_station(stations);
-                if ((best_station !== undefined) && (best_station.d <= station_proximity_range)) {
-                    const st = stations.find(st => st.id == best_station.id);
-                    if (st !== undefined) {
-                        state.near_station = st;
-                        console.log("Entering station " + st.id);
-                    }
-                    else {
-                        state.near_station = null;
-                    }
-                }
-            }*/
         },
         take_scooter(state, id) {
             state.scooters_in_use.push(id);
@@ -282,18 +262,28 @@ store.dispatch("init_auth_plugin").catch(error => {
             */
     }
     else {
-        store.commit("set_location", latLng(25.2, 55.3)); // Dubai
+        EventBus.$once("signed-in", () => {
+            store.state.ax.get("/v0/unit/Simulated").then(response => {
+                const u = response.data[0];
+                console.log("Initial unit qwer " + JSON.stringify(u));
+                const loc = latLng(u.lat, u.lon);
+                console.log("Initial unit location " + loc);
+                store.commit("set_location", loc);
+            });
+        });
         EventBus.$on("unit", u => {
             if ((u.unit == "Simulated") && u.lat && u.lon) {
-                let loc = latLng(u.lat, u.lon);
+                const loc = latLng(u.lat, u.lon);
                 console.log("Updating unit location " + loc);
                 store.commit("set_location", loc);
             }
         });
     }
 
-    EventBus.$on("signed-in", () => {
+    EventBus.$once("signed-in", () => {
         store.dispatch("data/fetch_stations");
+        store.dispatch("data/fetch_units");
+        EventBus.$on("unit", u => store.dispatch("data/update_unit", u));
     });
 
     // Initialization of the ui

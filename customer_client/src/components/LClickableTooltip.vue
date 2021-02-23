@@ -14,12 +14,17 @@ export default {
         content: {
             type: String,
             default: null,
-            custom: true
-        }
+            custom: true,
+        },
+        permanent: {
+            type: Boolean,
+            default: true,
+        },
     },
     mounted() {
-        const options = { permanent: true, };
-        this.mapObject = tooltip(options);
+        this.mapObject = tooltip({
+            permanent: this.permanent,
+        });
         DomEvent.on(this.mapObject, this.$listeners);
 
         const el = this.content || this.$el;

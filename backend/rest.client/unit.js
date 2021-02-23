@@ -42,7 +42,7 @@ function get_units(pipe) {
                 items[bat.unit].bat = bat.bat;
             }
         });
-        return items;
+        return Object.values(items);
     });
 }
 

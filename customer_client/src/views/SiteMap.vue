@@ -14,8 +14,8 @@
             <l-control-scale position="topright" :imperial="false" :metric="true"/>
             <l-tile-layer :url="tile_url" :options="tileLayerOptions"/>
             <l-control position="bottomleft" >
-                <v-btn small color="primary" @click="nearest_to_take">Nearest<br>to take</v-btn>
-                <v-btn small color="error" @click="nearest_to_return">Nearest<br>to return</v-btn>
+                <v-btn small color="primary" @click="nearest_station('take')">Nearest<br>to take</v-btn>
+                <v-btn small color="error" @click="nearest_station('return')">Nearest<br>to return</v-btn>
             </l-control>
             <l-control position="bottomright" >
                 <v-btn fab color="primary" @click="toggle_auto_center" :outlined="!auto_center"><v-icon>fas fa-crosshairs</v-icon></v-btn>
@@ -23,8 +23,8 @@
 
             <v-marker-cluster>
             <template v-for="(st, id) in $store.state.data.stations">
-                <l-marker :lat-lng="st.loc" :key="id" @click="station_clicked(id)">
-                    <l-clickable-tooltip @click="station_clicked(id)">
+                <l-marker :lat-lng="st.loc" :key="id" @click="station_clicked(st)">
+                    <l-clickable-tooltip @click="station_clicked(st)">
                         {{ st.name }}<br>{{ st.ready }}/{{ st.charging }}/{{ st.free }}
                     </l-clickable-tooltip>
                     <!--l-icon :icon-size="[40, 36]">
@@ -42,7 +42,18 @@
             </template>
             </v-marker-cluster>
 
-            <l-marker ref="current_pos" :icon="($store.state.scooters_in_use.length > 0) ? icon_biking : null" :lat-lng="$store.state.current_location"/>
+            <v-marker-cluster :options="{iconCreateFunction: function (c) { return unit_cluster_icon(c); } }">
+            <template v-for="u in $store.getters['data/my_units']">
+                <l-marker v-if="u.loc" :lat-lng="u.loc" :key="u.unit" :icon="icon_biking" @click="unit_clicked(u)" :zIndexOffset="1000">
+                    <l-clickable-tooltip @click="unit_clicked(u)" :permanent="false">
+                        {{ u.unit }}<br>{{ u.spdt }} kph
+                    </l-clickable-tooltip>
+                </l-marker>
+            </template>
+            </v-marker-cluster>
+
+            <l-marker ref="current_pos" :icon="icon_selected_unit" :lat-lng="$store.state.current_location" :zIndexOffset="1001"/>
+
         </l-map>
 
     </div>
@@ -52,7 +63,7 @@
 // @ is an alias to /src
 import { EventBus } from "@/modules/event-bus";
 import L from "leaflet";
-import { latLng } from "leaflet";
+import { latLng, latLngBounds } from "leaflet";
 import { LMap, LControl, LControlScale, LTileLayer, LMarker } from "vue2-leaflet";
 import Vue2LeafletMarkerCluster from "vue2-leaflet-markercluster";
 import LClickableTooltip from "@/components/LClickableTooltip";
@@ -78,9 +89,21 @@ Icon.Default.mergeOptions({
     iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png"),
 });
 
+const icon_selected_unit = L.divIcon({
+    html: '<img src="'+ require("../assets/selected-unit-icon.png") + '">',
+    className: "icon-unit selected",
+    iconSize: new L.Point(0, 0),
+});
+
+const icon_unselected_unit = L.divIcon({
+    html: '<img src="'+ require("../assets/unit-icon.png") + '">',
+    className: "icon-unit unselected",
+    iconSize: new L.Point(0, 0),
+});
+
 const icon_biking = L.icon({
     iconUrl: require("../assets/marker-biking.png"),
-    shadowUrl: require("../assets/marker-biking-shadow.png"),
+    //shadowUrl: require("../assets/marker-biking-shadow.png"),
     iconRetinaUrl: require("../assets/marker-biking-2x.png"),
     iconSize: [ 52, 41 ],
     shadowSize: [ 52, 41 ],
@@ -113,9 +136,12 @@ export default {
             map: false,
             currentCenter: latLng(25.1, 55.2),
             currentZoom: 11,
+            icon_selected_unit,
+            icon_unselected_unit,
             icon_biking,
             mapOptions: {
-                zoomSnap: 0.5
+                zoomSnap: 0.5,
+                zoomDelta: 0.5,
             },
             auto_center: true,
             centering_in_progress: true,
@@ -132,8 +158,9 @@ export default {
     watch: {
         "$store.state.current_location": function (loc) {
             this.$store.state.app_bar_info = loc.lat.toFixed(4) + ", " + loc.lng.toFixed(4);
-            if (this.auto_center) { // meters
-                this.$refs.site_map.setCenter(loc);
+            if (this.auto_center && this.map) {
+                console.log("Centering to " + loc);
+                this.map.flyTo(loc);
             }
         },
     },
@@ -144,6 +171,7 @@ export default {
         },
         zoomUpdate: function (zoom) {
             this.currentZoom = zoom;
+            console.log("zoom=" + zoom);
         },
         centerUpdate: function (center) {
             this.currentCenter = center;
@@ -151,32 +179,44 @@ export default {
         user_drag: function() {
             this.auto_center = false;
         },
+        unit_cluster_icon: function (cluster) {
+            var childCount = cluster.getChildCount();
+            return new L.DivIcon({ html: "<div><span>" + childCount + "</span></div>", className: "marker-cluster unit-cluster", iconSize: new L.Point(40, 40) });
+        },
         toggle_auto_center: function() {
             this.auto_center = !this.auto_center;
             if (this.auto_center) {
-                this.$refs.site_map.setCenter(this.$store.state.current_location);
+                this.map.flyTo(this.$store.state.current_location);
             }
         },
-        nearest_to_take: function () {
-            /*const best_station = nearest_station(this.stations.filter(st => st.ready > 0));
-            if (best_station !== undefined) {
-                console.log("nearest_to_take: " + JSON.stringify(best_station));
-                this.auto_center = false;
-                this.$refs.site_map.setCenter(best_station.loc);
-            }*/
+        nearest_station: function (_for) {
+            const loc = this.$store.state.current_location;
+            let bounds = latLngBounds([loc]);
+            this.$store.state.ax.get("/v0/station?for=" + _for + "&num=1&lat=" + loc.lat + "&lon=" + loc.lng).then(response => {
+                if (response.data && response.data[0] && response.data[0]._id) {
+                    // although we got the whole station record, look it up in the store instead,
+                    // first because it already has a .loc field, second because the reactivity is
+                    // preserved if we only refer to the same object (instead of a new object with the same content)
+                    const best_station = this.$store.state.data.stations[response.data[0]._id];
+                    console.log("nearest: " + JSON.stringify(best_station));
+                    this.auto_center = false;
+                    bounds.extend(best_station.loc);
+
+                    this.map.flyTo(best_station.loc, 16.5);
+
+                    //this.map.fitBounds(bounds, {});
+                }
+            });
         },
-        nearest_to_return: function () {
-            /*const best_station = nearest_station(this.stations.filter(st => st.free > 0));
-            if (best_station !== undefined) {
-                console.log("nearest_to_take: " + JSON.stringify(best_station));
-                this.auto_center = false;
-                this.$refs.site_map.setCenter(best_station.loc);
-            }*/
+        unit_clicked: function (u) {
+            console.log("TODO: unit clicked: " + JSON.stringify(u));
+        },
+        station_clicked: function (st) {
+            console.log("TODO: station clicked: " + JSON.stringify(st));
         },
     },
     created: function() {
         console.log("SiteMap created, store.state.sign_in_ready=" + this.$store.state.sign_in_ready);
-        // this.$refs.site_map.mapObject.ANY_LEAFLET_MAP_METHOD();
         if (!this.$store.getters.is_logged_in) {
             console.log("Not signed in, proceed to sign-in");
             this.$router.push("/signin");
@@ -194,6 +234,54 @@ export default {
 
 <style lang="scss">
 @import "~vuetify/src/styles/main.sass";
+
+.unit-cluster {
+    background-color: #fe4;
+}
+
+.unit-cluster div {
+    background-color: #e10;
+    color: #fff;
+    font-size: 1.5em;
+}
+
+@keyframes icon-spin {
+    from {
+        transform: rotate3d(0, 1, 0, 0deg);
+        opacity: 1;
+    }
+    to {
+        transform: rotate3d(0, 1, 0, 360deg);
+        opacity: 1;
+    }
+}
+
+@keyframes trace-crawl {
+    from {
+        stroke-dashoffset: 15;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+.icon-unit img {
+    animation: 5s infinite linear icon-spin;
+    position: relative;
+    left: -13px;
+    top: -36px;
+}
+
+.icon-unit.selected img {
+    animation: 1.5s infinite linear icon-spin;
+}
+
+.trace-unit {
+    stroke: #e04;
+    stroke-width: 6;
+    stroke-dasharray: 1,15;
+    animation: 2s infinite linear trace-crawl;
+}
 
 </style>
 
