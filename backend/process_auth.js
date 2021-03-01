@@ -28,19 +28,21 @@ function process_auth(req) {
         return Promise.resolve();
     }
 
-    if (req.session.email) {
+    if (req.session && req.session.email) {
         // already have a session, don't care about the "Authorization" header
+        logger.debug("Session already exists");
         return Promise.resolve();
     }
 
     const bearer_token = req.get("Authorization");
 
     if (!bearer_token) {
-        if (!req.session.email) {
-            req.session.email = null;
-            req.session.is_admin = false;
-            req.session.is_technician = false;
-        }
+        logger.debug("No session, no token, going anonymous");
+        delete req.session.email;
+        delete req.session.name;
+        delete req.session.provider;
+        req.session.is_admin = false;
+        req.session.is_technician = false;
         return Promise.resolve();
     }
     
@@ -49,6 +51,7 @@ function process_auth(req) {
         return Promise.reject(utils.error(400, "ID token must start with 'Bearer '"));
     }
     
+    logger.debug("No session but token present, doing sign-in");
     return fba.auth().verifyIdToken(bearer_token.substring(7)).catch(err => {
         throw utils.error(403, err);
     }).then(decodedToken => {
@@ -70,7 +73,7 @@ function process_auth(req) {
             }
             else {
                 // new user, auto-subcribe as plain user
-                return db.users.insertOne({email: decodedToken.email, is_admin: false, is_technician: false })
+                return db.users.insertOne({email: decodedToken.email, is_admin: false, is_technician: false }).then(() => { return; }); // return undefined when done
             }
         });
     });

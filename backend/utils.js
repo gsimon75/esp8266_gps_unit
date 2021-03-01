@@ -133,6 +133,14 @@ function s2bool(s) {
 }
 
 
+function add_cors_response_headers(res, origin) {
+    res.header("Access-Control-Allow-Origin", origin || "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    res.header("Access-Control-Allow-Credentials", true);
+    res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,PATCH,OPTIONS");
+}
+
+
 function dump_request(req) {
     // https://expressjs.com/en/guide/routing.html
     // req is-a IncomingMessage
@@ -164,7 +172,6 @@ function dump_request(req) {
     }
 }
 
-
 module.exports = {
     HTTPError,
     error,
@@ -177,6 +184,7 @@ module.exports = {
     require_body,
     av,
     s2bool,
+    add_cors_response_headers,
     dump_request,
 }
 
