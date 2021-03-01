@@ -70,19 +70,36 @@ export default {
         };
     },
     methods: {
+        proceed: function () {
+            console.log("Proceed to map");
+            this.$store.commit("mark_started", true);
+            //this.$router.push("/site_map");
+            this.$router.push("/account");
+        },
         sign_in_with_google: function () {
             this.$store.dispatch("sign_in_with_google").then(() => {
-                this.$router.back();
+                this.proceed();
             });
         },
         sign_in_with_email_pwd: function () {
             this.showing_emailpwd_dialog = false;
-            this.$store.dispatch("sign_in_with_email_pwd", {email: this.auth_email, pwd: this.auth_pwd, signup: this.auth_signup, displayName: this.auth_displayname}).then(() => {
-                    this.$router.back();
-            }).catch(err => {
-                alert("Sign-in failed: " + err);
-            });
+            this.$store.dispatch("sign_in_with_email_pwd", {email: this.auth_email, pwd: this.auth_pwd, signup: this.auth_signup, displayName: this.auth_displayname})
+                .then(this.proceed)
+                .catch(err => alert("Sign-in failed: " + err));
         },
+    },
+    created: function() {
+        console.log("ExitGuard created");
+        if (this.$store.state.is_started) {
+            console.log("Exiting the app now");
+            if (typeof cordova !== "undefined") {
+                navigator.app.exitApp();
+            }
+        }
+        else if (this.$store.getters.have_auth_token) {
+            console.log("Check if we already have a session");
+            this.$store.dispatch("sign_in_to_backend", this.$store.state.auth.id_token).then(this.proceed);
+        }
     },
 }
 

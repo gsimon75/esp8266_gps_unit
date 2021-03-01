@@ -216,11 +216,7 @@ export default {
         },
     },
     created: function() {
-        console.log("SiteMap created, store.state.sign_in_ready=" + this.$store.state.sign_in_ready);
-        if (!this.$store.getters.is_logged_in) {
-            console.log("Not signed in, proceed to sign-in");
-            this.$router.push("/signin");
-        }
+        console.log("SiteMap created");
         EventBus.$on("keepalive", () => {
             console.log("keepalive...");
         });

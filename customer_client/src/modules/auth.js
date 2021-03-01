@@ -41,7 +41,7 @@ export default {
         auth(state, getters, rootState) { // eslint-disable-line no-unused-vars
             return state;
         },
-        is_logged_in(state, getters, rootState) { // eslint-disable-line no-unused-vars
+        have_auth_token(state, getters, rootState) { // eslint-disable-line no-unused-vars
             return state.id_token != "";
         },
     },
@@ -68,6 +68,10 @@ export default {
     actions: {
         init_auth_plugin(context) {
             var prepare;
+
+            for (let k in context.state) {
+                console.log("auth.state." + k + " = " + JSON.stringify(context.state[k]));
+            }
             
             if (typeof cordova !== "undefined") {
                 console.log("Initializing mobile app");
@@ -126,33 +130,34 @@ export default {
                 }
             });
         },
+        finish_sign_in(context) {
+            // https://javascript.info/server-sent-events
+            // https://developer.mozilla.org/en-US/docs/Web/API/EventSource
+            var source = new EventSource(((typeof cordova === "undefined") ? "" : "https://client.wodeewa.com") + "/v0/event", { withCredentials: true });
+            ["station", "unit"].forEach(t => {
+                let listener = event => {
+                    console.log("sse incoming " + t + ": " + event.data);
+                    EventBus.$emit(t, JSON.parse(event.data));
+                };
+                source.addEventListener(t, listener, false);
+            });
+            source.addEventListener("end", event => {
+                console.log("sse wants to close the connection: " + event.data);
+                source.close();
+            }, false);
+
+            EventBus.$emit("signed-in", { yadda: 42 });
+            setImmediate(() => context.commit("set_signin_state", true));
+        },
         sign_in_to_backend(context, id_token) {
             console.log("Signing in to backend");
             //context.rootState.ax.defaults.headers.common["Authorization"] = "Bearer " + id_token;
-            context.rootState.ax.get("v0/whoami", { headers: { Authorization: "Bearer " + id_token}, }).then(result => {
+            context.rootState.ax.get("v0/whoami", { headers: { Authorization: "Bearer " + id_token} }).then(result => {
                 console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
-
-                // ==============================================================================
-                // https://javascript.info/server-sent-events
-                // https://developer.mozilla.org/en-US/docs/Web/API/EventSource
-                var source = new EventSource("/v0/event");
-                ["station", "unit"].forEach(t => {
-                    let listener = event => {
-                        console.log("sse incoming " + t + ": " + event.data);
-                        EventBus.$emit(t, JSON.parse(event.data));
-                    };
-                    source.addEventListener(t, listener, false);
-                });
-                source.addEventListener("end", event => {
-                    console.log("sse wants to close the connection: " + event.data);
-                    source.close();
-                }, false);
-                // ==============================================================================
-
-                EventBus.$emit("signed-in", { yadda: 42 });
-                setImmediate(() => context.commit("set_signin_state", true));
+                return context.dispatch("finish_sign_in");
             }).catch(err => {
                 console.log("Failed to sign in to backend: " + err);
+                throw err;
             });
         },
         sign_in_with_google(context) {
