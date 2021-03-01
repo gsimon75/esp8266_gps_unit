@@ -170,7 +170,7 @@ export default {
             console.log("signing out");
             this.$store.dispatch("sign_out").then(() => {
                     this.$store.commit("logged_out");
-                    this.$router.push("/signin");
+                    this.$router.push("/sign_in");
             });
         },
     },

@@ -30,7 +30,7 @@
                     <v-list-item-content>Account</v-list-item-content>
                 </v-list-item>
 
-                <v-list-item to="/signin" v-if="!$store.getters.is_logged_in">
+                <v-list-item to="/sign_in" v-if="!$store.getters.have_auth_token">
                     <v-list-item-icon><v-icon>fas fa-sign-in-alt</v-icon></v-list-item-icon>
                     <v-list-item-content>Sign in</v-list-item-content>
                 </v-list-item>
@@ -60,7 +60,7 @@ export default {
     }),
     created: function() {
         console.log("App created");
-        this.$router.push("/exit_guard");
+        this.$router.push("/sign_in");
     },
 };
 </script>

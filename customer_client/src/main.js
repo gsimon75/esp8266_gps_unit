@@ -30,7 +30,6 @@ import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 import App from "./App.vue";
 
-import ExitGuard from "@/views/ExitGuard.vue";
 import NotFound from "@/views/NotFound.vue";
 import SignIn from "@/views/SignIn.vue";
 import Home from "@/views/Home.vue";
@@ -42,18 +41,24 @@ import Account from "@/views/Account.vue";
 import { latLng } from "leaflet";
 
 import { Plugins } from "@capacitor/core";
-const { SplashScreen, Geolocation } = Plugins;
+const { SplashScreen, Geolocation, Storage } = Plugins;
 
 import { EventBus } from "@/modules/event-bus";
 import auth from "@/modules/auth";
 import data from "@/modules/data";
 
+Storage.getItem = function (key) { return this.get({key}).then(v => (v === null) ? null : JSON.parse(v.value)); }
+Storage.setItem = function (key, value) { return this.set({key, value: JSON.stringify(value)}); }
+Storage.removeItem = function (key) { return this.remove({key}) }
+Storage.key = function (n) { return this.keys().then(k => ((0 <= n) && (n < k.length)) ? k[n] : null) }
+
 const vuexLocalStorage = new VuexPersist({
     key: "vuex",
-    storage: window.localStorage,
+    asyncStorage: (typeof cordova !== "undefined"),
+    storage: (typeof cordova !== "undefined") ? Storage : window.localStorage,
     modules: ["auth"],
 });
-       
+
 const axios = require("axios");
 const http = require("http");
 const httpAgent = new http.Agent({ keepAlive: true });
@@ -101,7 +106,9 @@ const store = new Vuex.Store({
             state.sign_in_ready = value;
         },
         set_location(state, loc) {
-            state.current_location = loc;
+            if (loc && (loc.lat !== undefined) && (loc.lng !== undefined)) {
+                state.current_location = loc;
+            }
         },
         take_scooter(state, id) {
             state.scooters_in_use.push(id);
@@ -164,12 +171,7 @@ const router = new VueRouter({
     base: process.env.BASE_URL,
     routes: [
         {
-            path: "/exit_guard",
-            name: "Exit Guard",
-            component: ExitGuard
-        },
-        {
-            path: "/signin",
+            path: "/sign_in",
             name: "Sign In",
             component: SignIn
         },
@@ -219,13 +221,14 @@ store.dispatch("init_auth_plugin").catch(error => {
     store.commit("logged_out");
 }).then(() => {
     if (typeof cordova !== "undefined") {
+        store.state.ax.defaults.baseURL = "https://client.wodeewa.com";
         // current location handler
         // https://capacitorjs.com/docs/apis/geolocation#geolocationposition
         const watch_location = function (loc, err) {
             if (err) {
                 console.log("watch_location err=" + err);
             }
-            else {
+            else if ((loc.latitude !== undefined) && (loc.longitude !== undefined)) {
                 console.log("loc.timestamp=" + loc.timestamp);
                 console.log("loc.latitude=" + loc.latitude);
                 console.log("loc.longitude=" + loc.longitude);
