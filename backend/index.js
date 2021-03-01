@@ -31,8 +31,10 @@ app.use(session({
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
+    proxy: true,
     cookie: {
-        secure: app.get("env") === "production",
+        secure: true,
+        sameSite: "none",
     },
 }));
 
@@ -42,14 +44,27 @@ app.use(bodyParser.urlencoded({extended: false}));
 
 app.disable("etag"); // Don't want "304 Not Modified" responses when the underlying data has actually changed
 
+const allowed_origins = [
+    "https://client.wodeewa.com",
+    "https://admin.wodeewa.com",
+    "capacitor://localhost",
+    "http://localhost",
+];
+
 app.use((req, res, next) => {
     // Do the CORS rain dance
-    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-    res.header("Access-Control-Allow-Credentials", true);
-    // Don't want "304 Not Modified" responses when the underlying data has actually changed
-    res.header("Last-Modified", (new Date()).toUTCString());
-    next();
+    if (!req.headers.origin) {
+        next(utils.error(403, "CORS without Origin"));
+    }
+    else if (allowed_origins.includes(req.headers.origin)) {
+        utils.add_cors_response_headers(res, req.headers.origin);
+        // Don't want "304 Not Modified" responses when the underlying data has actually changed
+        res.header("Last-Modified", (new Date()).toUTCString());
+        next();
+    }
+    else {
+        next(utils.error(403, "CORS denied"));
+    }
 });
 
 // Check authentication
