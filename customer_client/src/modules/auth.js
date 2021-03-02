@@ -36,7 +36,7 @@ export default {
         id_token: "",
         provider_id: "",
         uid: "",
-        event_source: null,
+        event_source: {},
     },
     getters: {
         auth(state, getters, rootState) { // eslint-disable-line no-unused-vars
@@ -67,6 +67,7 @@ export default {
             state.uid = "";
         },
         set_event_source(state, x) {
+            console.log("Setting event source");
             state.event_source = x;
         },
     },
@@ -89,7 +90,7 @@ export default {
                 prepare = Promise.resolve();
             }
 
-            prepare.then(() => {
+            return prepare.then(() => {
                 var webPlugin = require("firebase/app");
                 console.log("webPlugin=" + webPlugin);
                 context.commit("set_auth_plugin", webPlugin);
@@ -138,7 +139,13 @@ export default {
         finish_sign_in(context) {
             // https://javascript.info/server-sent-events
             // https://developer.mozilla.org/en-US/docs/Web/API/EventSource
-            if (!context.state.event_source || (context.state.event_source.readyState == 2)) {
+            console.log("Checking event source");
+            if ((context.state.event_source.readyState === undefined) || (context.state.event_source.readyState == 2)) {
+                if (context.state.event_source.readyState !== undefined) {
+                    console.log("Closing old event source");
+                    context.state.event_source.close();
+                }
+                console.log("Creating event source");
                 var source = new EventSource(((typeof cordova === "undefined") ? "" : "https://client.wodeewa.com") + "/v0/event", { withCredentials: true });
                 context.commit("set_event_source", source);
                 ["station", "unit"].forEach(t => {
@@ -153,6 +160,9 @@ export default {
                     source.close();
                 }, false);
             }
+            else {
+                console.log("Event source already exists, readyState=" + context.state.event_source.readyState);
+            }
 
             EventBus.$emit("signed-in", { yadda: 42 });
             setImmediate(() => context.commit("set_signin_state", true));
@@ -161,10 +171,14 @@ export default {
             console.log("Signing in to backend");
             //context.rootState.ax.defaults.headers.common["Authorization"] = "Bearer " + context.state.id_token;
             return context.rootState.ax.get("v0/whoami", { headers: { Authorization: "Bearer " + context.state.id_token} }).then(result => {
-                console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
-                return context.dispatch("finish_sign_in");
+                if ((200 <= result.status) && (result.status < 300)) {
+                    console.log("Signed in to backend, whoami results: " + JSON.stringify(result.data));
+                    return context.dispatch("finish_sign_in");
+                }
+                console.log("Failed to sign in to backend: " + result.status);
+                throw result;
             }).catch(err => {
-                console.log("Failed to sign in to backend: " + err);
+                console.log("Failed to sign in to backend (hard): " + err);
                 throw err;
             });
         },
