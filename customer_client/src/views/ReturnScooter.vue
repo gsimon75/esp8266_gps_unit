@@ -34,11 +34,17 @@ export default {
     },
     methods: {
         return_scooter: function (id) {
-            this.$store.commit("return_scooter", id);
-            if (this.$store.state.scooters_in_use.length == 0) {
+            //this.$store.commit("return_scooter", id);
+            /*if (this.$store.state.scooters_in_use.length == 0) {
                 this.$router.back();
-            }
+            }*/
         },
+    },
+    created: function () {
+        console.log("Fetching test");
+        this.$store.state.ax.get("/v0/test").then(response => {
+            console.log("Response=" + JSON.stringify(response));
+        });
     },
 }
 
