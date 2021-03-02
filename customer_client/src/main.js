@@ -65,25 +65,12 @@ const httpAgent = new http.Agent({ keepAlive: true });
 
 const ax = axios.create({ httpAgent, withCredentials: true });
 
-ax.interceptors.response.use(function (response) {
-    return response;
-}, function (error) {
-    // [2021-02-14T12:43:20.627] [DEBUG] utils - error = {"status":403,"error":{"code":"auth/id-token-expired","message":"Firebase ID token has expired. Get a fresh ID token from your client app and try again (auth/id-token-expired). See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."}}
-    // axios intercepted response: {"message":"Request failed with status code 403","name":"Error","stack":"Error: Request failed with status code 403\n    at createError (webpack-internal:///./node_modules/axios/lib/core/createError.js:16:15)\n    at settle (webpack-internal:///./node_modules/axios/lib/core/settle.js:17:12)\n    at XMLHttpRequest.handleLoad (webpack-internal:///./node_modules/axios/lib/adapters/xhr.js:62:7)","config":{"url":"/v0/unit/trace/Simulated?before=1613306600&num=8","method":"get","headers":{"Accept":"application/json, text/plain, */*","Authorization":"Bearer eyJ..."},"transformRequest":[null],"transformResponse":[null],"timeout":0,"withCredentials":true,"xsrfCookieName":"XSRF-TOKEN","xsrfHeaderName":"X-XSRF-TOKEN","maxContentLength":-1,"maxBodyLength":-1,"httpAgent":{}}}
-    console.log("axios intercepted, error.response: " + JSON.stringify(error.response));
-    for (let x in error) {
-        console.log("for ... in error found: " + x);
-    }
-    console.log("keys of error: " + JSON.stringify(Object.keys(error)));
-    console.log("own props of error: " + JSON.stringify(Object.getOwnPropertyNames(error)));
-    return Promise.reject(error);
-});
-
 const store = new Vuex.Store({
     state: {
         ax,
         is_started: false,
         sign_in_ready: false,
+        reauth_in_progress: false,
         app_bar_info: "...",
         auth_plugin: null,
         current_location: latLng(0, 0),
@@ -105,27 +92,17 @@ const store = new Vuex.Store({
         set_signin_state(state, value) {
             state.sign_in_ready = value;
         },
+        set_reauth(state, value) {
+            state.reauth_in_progress = value;
+        },
         set_location(state, loc) {
             if (loc && (loc.lat !== undefined) && (loc.lng !== undefined)) {
                 state.current_location = loc;
             }
         },
         take_scooter(state, id) {
-            state.scooters_in_use.push(id);
-            if (state.near_station && (state.near_station.ready > 0)) {
-                state.near_station.ready--;
-                state.near_station.free++;
-            }
         },
         return_scooter(state, id) {
-            const idx = state.scooters_in_use.indexOf(id);
-            if (idx >= 0) {
-                state.scooters_in_use.splice(idx, 1);
-                if (state.near_station && (state.near_station.free > 0)) {
-                    state.near_station.free--;
-                    state.near_station.ready++;
-                }
-            }
         },
     },
     actions: {
@@ -135,6 +112,48 @@ const store = new Vuex.Store({
         data,
     },
     plugins: [vuexLocalStorage.plugin],
+});
+
+ax.interceptors.response.use(function (response) {
+    return response;
+}, function (error) {
+    // [2021-02-14T12:43:20.627] [DEBUG] utils - error = {"status":403,"error":{"code":"auth/id-token-expired","message":"Firebase ID token has expired. Get a fresh ID token from your client app and try again (auth/id-token-expired). See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."}}
+    //
+    // axios intercepted response: {"message":"Request failed with status code 403","name":"Error","stack":"Error: Request failed with status code 403\n    at createError (webpack-internal:///./node_modules/axios/lib/core/createError.js:16:15)\n    at settle (webpack-internal:///./node_modules/axios/lib/core/settle.js:17:12)\n    at XMLHttpRequest.handleLoad (webpack-internal:///./node_modules/axios/lib/adapters/xhr.js:62:7)","config":{"url":"/v0/unit/trace/Simulated?before=1613306600&num=8","method":"get","headers":{"Accept":"application/json, text/plain, */*","Authorization":"Bearer eyJ..."},"transformRequest":[null],"transformResponse":[null],"timeout":0,"withCredentials":true,"xsrfCookieName":"XSRF-TOKEN","xsrfHeaderName":"X-XSRF-TOKEN","maxContentLength":-1,"maxBodyLength":-1,"httpAgent":{}}}
+    //
+    // axios intercepted, error.response: {"data":"","status":403,"statusText":"Firebase ID token has expired. Get a fresh ID token from your client app and try again (auth/id-token-expired). See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token.","headers":{"last-modified":"Mon, 01 Mar 2021 16:10:47 GMT"},"config":{"url":"v0/whoami","method":"get","headers":{"Accept":"application/json, text/plain, */*","Authorization":"Bearer eyJh...d6g"},"baseURL":"https://client.wodeewa.com","transformRequest":[null],"transformResponse":[null],"timeout":0,"withCredentials":true,"xsrfCookieName":"XSRF-TOKEN","xsrfHeaderName":"X-XSRF-TOKEN","maxContentLength":-1,"maxBodyLength":-1,"httpAgent":{}},"request":{}}
+    //
+    console.log("axios intercepted, error.response: " + JSON.stringify(error.response));
+    //console.log("own props of error: " + JSON.stringify(Object.getOwnPropertyNames(error))); // own props of error: ["stack","message","config","request","response","isAxiosError","toJSON"]
+
+    if ((error.response.status == 401) && !store.state.reauth_in_progress) {
+        store.commit("set_reauth", true);
+        console.log("TODO: get a new cookie and retry");
+        return store.dispatch("sign_in_to_backend").then(() => {
+            store.commit("set_reauth", false);
+            console.log("TODO: retry the request");
+            return ax.request(error.config);
+        });
+    }
+
+    if ((error.response.status == 403) && error.response.statusText.includes("(auth/id-token-expired)") && !store.state.reauth_in_progress) {
+        store.commit("set_reauth", true);
+        console.log("TODO: get a new id token and retry, provider_id='" + store.state.auth.provider_id + "'");
+        //if (store.state.auth.provider_id == "google.com") {
+        //}
+        return store.dispatch("sign_in_with_google").then(() => {
+            store.commit("set_reauth", false);
+            console.log("TODO: retry the request");
+            if (error.config.url == "v0/whoami") {  // the sign-in itself -> already processed
+                return Promise.resolve();
+            }
+            else {
+                return ax.request(error.config);
+            }
+        });
+    }
+
+    return Promise.reject(error);
 });
 
 /*

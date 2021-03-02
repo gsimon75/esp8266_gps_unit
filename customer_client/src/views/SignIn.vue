@@ -98,7 +98,7 @@ export default {
         }
         else if (this.$store.getters.have_auth_token) {
             console.log("Check if we already have a session");
-            this.$store.dispatch("sign_in_to_backend", this.$store.state.auth.id_token).then(this.proceed);
+            this.$store.dispatch("sign_in_to_backend").then(this.proceed);
         }
     },
 }
