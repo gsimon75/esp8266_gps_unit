@@ -19,6 +19,10 @@ module.exports = {
     chainWebpack: config => {
         config.plugins.delete("prefetch");
         config.module.rule("images").use("url-loader").loader("url-loader").tap(options => Object.assign(options, { limit: 131072 }));
+        config.plugin("html").tap(args => {
+            args[0].favicon = "./src/assets/favicon.png";
+            return args;
+        });
         config.plugin("VuetifyLoaderPlugin").tap(args => [{
         }]);
     },
