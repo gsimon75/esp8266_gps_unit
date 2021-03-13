@@ -165,6 +165,12 @@ export default {
                     console.log("sse wants to close the connection: " + event.data);
                     source.close();
                 }, false);
+                source.addEventListener("error", err => {
+                    console.log("sse error: " + err);
+                    for (let k in err) {
+                        console.log("sse error." + k + " = " + err[k]);
+                    }
+                }, false);
             }
             else {
                 console.log("Event source already exists, readyState=" + context.state.event_source.readyState);
