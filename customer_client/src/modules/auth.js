@@ -1,5 +1,6 @@
 import {cfaSignIn, cfaSignOut } from "capacitor-firebase-auth";
 import { EventBus } from "@/modules/event-bus";
+import JsSSE from "@/modules/jssse";
 //const WebSocket = require("ws");
 
 const web_app_config = {
@@ -137,8 +138,13 @@ export default {
             });
         },
         finish_sign_in(context) {
+            if (context.rootState.sign_in_ready) {
+                console.log("Already finalized sign-in");
+                return;
+            }
             // https://javascript.info/server-sent-events
             // https://developer.mozilla.org/en-US/docs/Web/API/EventSource
+            /*
             console.log("Checking event source");
             if ((context.state.event_source.readyState === undefined) || (context.state.event_source.readyState == 2)) {
                 if (context.state.event_source.readyState !== undefined) {
@@ -163,9 +169,61 @@ export default {
             else {
                 console.log("Event source already exists, readyState=" + context.state.event_source.readyState);
             }
+            */
 
             EventBus.$emit("signed-in", { yadda: 42 });
             setImmediate(() => context.commit("set_signin_state", true));
+
+            /********************************************************************************/
+            console.log("Starting fetch");
+            let fetcher = new JsSSE({
+                url: ((typeof cordova === "undefined") ? "" : "https://client.wodeewa.com") + "/v0/fetch_event",
+                options: {
+                    method: "GET",
+                    mode: "cors",
+                    cache: "no-cache",
+                    credentials: "include",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    redirect: "follow", // manual, *follow, error
+                    referrerPolicy: "no-referrer", // no-referrer, *no-referrer-when-downgrade, origin, origin-when-cross-origin, same-origin, strict-origin, strict-origin-when-cross-origin, unsafe-url
+                },
+                on_connected: async (response) => {
+                    console.log("fetch response status: " + response.status + "(" + response.statusText + ")");
+                    for (let kv of response.headers.entries()) {
+                        console.log("fetch response header: " + kv[0] + ": " + kv[1]);
+                    }
+                    let do_reconnect = response.ok;
+                    // TODO: 404, 5xx -> return false
+                    // TODO: 403, 401 -> reauth
+                    if ((response.status == 401) && !context.rootState.reauth_in_progress) {
+                        context.commit("set_reauth", true);
+                        console.log("TODO: get a new cookie and retry");
+                        await context.dispatch("sign_in_to_backend").then(() => {
+                            context.commit("set_reauth", false);
+                            do_reconnect = true;
+                        });
+                    }
+                    return do_reconnect;
+                },
+                on_message: (msg) => {
+                    console.log("fetch received: " + JSON.stringify(msg));
+                    return true;
+                },
+                on_closed: () => {
+                    console.log("fetch closed");
+                    return true;
+                },
+                on_error: (err) => {
+                    console.log("fetch error: " + err);
+                    return true;
+                },
+            });
+
+            fetcher.start();
+            /********************************************************************************/
+
         },
         sign_in_to_backend(context) {
             console.log("Signing in to backend");

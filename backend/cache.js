@@ -13,30 +13,55 @@ const pipe_last_records = [
 
 function upsert_location(u) {
     if (!(u.unit in unit_cache)) {
-        unit_cache[u.unit] = { unit: u.unit, };
+        unit_cache[u.unit] = {
+            type: "unit",
+            unit: u.unit,
+        };
     }
+    let changed = 
+        (unit_cache[u.unit].location_time != u.time) ||
+        (unit_cache[u.unit].lat != u.lat) ||
+        (unit_cache[u.unit].lon != u.lon) ||
+        (unit_cache[u.unit].azi != u.azi) ||
+        (unit_cache[u.unit].spd != u.spd);
+
     unit_cache[u.unit].location_time = u.time;
     unit_cache[u.unit].lat = u.lat;
     unit_cache[u.unit].lon = u.lon;
     unit_cache[u.unit].azi = u.azi;
     unit_cache[u.unit].spd = u.spd;
+
+    return changed;
 }
 
 function upsert_status(u) {
     if (!(u.unit in unit_cache)) {
         unit_cache[u.unit] = {};
     }
+    let changed =
+        (unit_cache[u.unit].status_time != u.time) ||
+        (unit_cache[u.unit].status != u.status) ||
+        (unit_cache[u.unit].user != u.user);
+
     unit_cache[u.unit].status_time = u.time;
     unit_cache[u.unit].status = u.status;
     unit_cache[u.unit].user = u.user;
+
+    return changed;
 }
 
 function upsert_battery(u) {
     if (!(u.unit in unit_cache)) {
         unit_cache[u.unit] = {};
     }
+    let changed =
+        (unit_cache[u.unit].battery_time != u.time) ||
+        (unit_cache[u.unit].bat != u.bat);
+
     unit_cache[u.unit].battery_time = u.time;
     unit_cache[u.unit].bat = u.bat;
+
+    return changed;
 }
 
 let handler = (etype, data) => {
@@ -46,21 +71,23 @@ let handler = (etype, data) => {
         emitter.removeListener("sendit", handler);
     }
     else if (etype == "unit_location") {
-        upsert_location(data);
-        send_composite = true;
+        send_composite = upsert_location(data);
     }
     else if (etype == "unit_status") {
-        upsert_status(data);
-        send_composite = true;
+        send_composite = upsert_status(data);
     }
     else if (etype == "unit_battery") {
-        upsert_battery(data);
-        send_composite = true;
+        send_composite = upsert_battery(data);
     }
 
     if (send_composite) {
+        unit_cache[data.unit].mark_for_sending = true;
         setImmediate(() => {
-            events.emitter.emit("sendit", "unit", unit_cache[data.unit]);
+            if (unit_cache[data.unit].mark_for_sending) {
+                delete unit_cache[data.unit].mark_for_sending;
+                //events.emitter.emit("sendit", "unit", unit_cache[data.unit]);
+                events.fetch_emitter.emit("sendit", unit_cache[data.unit]);
+            }
         });
     }
 };

@@ -16,6 +16,28 @@ fba.initializeApp({
 const anonymous = { id: -1, is_admin: false, is_technician: false };
 
 function process_auth(req) {
+    {
+        utils.dump_request(req);
+        var h;
+        h = req.get("Authorization");
+        if (h) {
+            logger.debug("req.Authorization = '" + h + "'");
+        }
+        h = req.get("Cookie");
+        if (h) {
+            logger.debug("req.Cookie = '" + h + "'");
+        }
+        if (req.session) {
+            for (let k in req.session) {
+                logger.debug("session." + k + " = '" + JSON.stringify(req.session[k]) + "'");
+            }
+        }
+    }
+
+    if (req.method == "OPTIONS") {
+        return Promise.resolve();
+    }
+
     // For development ONLY
     const x_real_ip = req.get("X-Real-IP");
     if (x_real_ip && (x_real_ip == "127.0.0.1")) {
@@ -41,14 +63,14 @@ function process_auth(req) {
         delete req.session.email;
         delete req.session.name;
         delete req.session.provider;
-        req.session.is_admin = false;
-        req.session.is_technician = false;
+        delete req.session.is_admin;
+        delete req.session.is_technician;
         return Promise.resolve();
     }
     
     if (!bearer_token.startsWith("Bearer ")) {
         logger.error("Invalid bearer token '" + bearer_token + "'");
-        return Promise.reject(utils.error(400, "ID token must start with 'Bearer '"));
+        return Promise.reject(utils.error(401, "ID token must start with 'Bearer '"));
     }
     
     logger.debug("No session but token present, doing sign-in");
@@ -59,13 +81,13 @@ function process_auth(req) {
         //logger.debug("decodedToken=" + JSON.stringify(decodedToken));
         // decodedToken={"name":"Gabor Simon","picture":"https://lh4.googleusercontent.com/.../photo.jpg","iss":"https://securetoken.google.com/fitnesstest-2d3ba","aud":"fitnesstest-2d3ba","auth_time":1603797293,"user_id":"uk...X2","sub":"uk...X2","iat":1603885448,"exp":1603889048,"email":"gabor.simon@saga4.com","email_verified":true,"firebase":{"identities":{"google.com":["10...7"],"email":["gabor.simon@saga4.com"]},"sign_in_provider":"google.com"},"uid":"uk...X2"}
         return db.users().findOne({email: decodedToken.email}).then(result => {
-            req.session.is_admin = false;
-            req.session.is_technician = false;
             // FIXME: handle banned/disabled accounts
             req.session.provider = decodedToken.firebase.sign_in_provider;
             req.session.email = decodedToken.email;
             req.session.name = decodedToken.name;
-            req.session.cookie.expires = new Date((decodedToken.exp - 5) * 1000); // let the cookie expire 5 seconds earlier than the token
+            //req.session.cookie.expires = new Date((decodedToken.exp - 5) * 1000); // let the cookie expire 5 seconds earlier than the token
+            req.session.cookie.maxAge = 2 * 60 * 1000; // FIXME: 2 minute validity for testing
+            logger.debug("Sign-in successful, req.session=" + JSON.stringify(req.session));
             if (result) {
                 // known user, retrieve his admin/technician status
                 req.session.is_admin = result.is_admin;
@@ -73,7 +95,9 @@ function process_auth(req) {
             }
             else {
                 // new user, auto-subcribe as plain user
-                return db.users.insertOne({email: decodedToken.email, is_admin: false, is_technician: false }).then(() => { return; }); // return undefined when done
+                req.session.is_admin = false;
+                req.session.is_technician = false;
+                return db.users.insertOne({email: req.session.email, is_admin: req.session.is_admin, is_technician: req.session.is_technician }).then(() => { return; }); // return undefined when done
             }
         });
     });

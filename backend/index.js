@@ -32,6 +32,7 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     proxy: true,
+    unset: "destroy",
     cookie: {
         secure: true,
         sameSite: "none",
@@ -54,17 +55,18 @@ const allowed_origins = [
 app.use((req, res, next) => {
     // Do the CORS rain dance
     if (!req.headers.origin) {
-        next(utils.error(403, "CORS without Origin"));
+        // Same-origin (FIXME: is it?)
     }
     else if (allowed_origins.includes(req.headers.origin)) {
         utils.add_cors_response_headers(res, req.headers.origin);
-        // Don't want "304 Not Modified" responses when the underlying data has actually changed
-        res.header("Last-Modified", (new Date()).toUTCString());
-        next();
     }
     else {
         next(utils.error(403, "CORS denied"));
+        return;
     }
+    // Don't want "304 Not Modified" responses when the underlying data has actually changed
+    res.header("Last-Modified", (new Date()).toUTCString());
+    next();
 });
 
 // Check authentication
@@ -100,6 +102,7 @@ app.use((err, req, res, next) => {
 });
 
 // Get port from environment and store in Express.
+const addr = "127.0.0.1";
 const port = 8080;
 logger.info("Listen address; port='" + port + "', protocol='http'");
 app.set("port", port);
@@ -136,7 +139,7 @@ server.on("close", () => {
 
 // Finish the startup when the server has actually started listening
 server.on("listening", () => {
-    var addr = server.address();
+    //var addr = server.address();
     logger.info("Server is listening;");
 
     // Register handlers for external kill signals
@@ -169,7 +172,7 @@ server.close = function(callback) {
 
 db.open().then(() => {
     cache.start();
-    server.listen(port);
+    server.listen(port, addr);
 });
 
 
