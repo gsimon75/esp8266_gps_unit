@@ -131,7 +131,6 @@ ax.interceptors.response.use(function (response) {
         console.log("TODO: get a new cookie and retry");
         return store.dispatch("sign_in_to_backend").then(() => {
             store.commit("set_reauth", false);
-            console.log("TODO: retry the request");
             return ax.request(error.config);
         });
     }
@@ -143,7 +142,6 @@ ax.interceptors.response.use(function (response) {
         //}
         return store.dispatch("sign_in_with_google").then(() => {
             store.commit("set_reauth", false);
-            console.log("TODO: retry the request");
             if (error.config.url == "v0/whoami") {  // the sign-in itself -> already processed
                 return Promise.resolve();
             }

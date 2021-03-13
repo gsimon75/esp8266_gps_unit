@@ -62,6 +62,35 @@ function event_filter(session, etype, u) {
 
 router.get("/event", (req, res) => events.dispatcher(req, res, (etype, u) => event_filter(req.session, etype, u)));
 
+function fevent_filter(session, u) {
+    logger.debug("filtering " + JSON.stringify(u));
+    if (u.type == "unit") {
+        logger.debug("is a unit");
+        if (u.user == session.email) {
+            logger.debug("belongs to user");
+            return true; // notify the user about his units
+        }
+        if ((u.status == "available") || (u.status == "charging")) {
+            logger.debug("is public");
+            return true; // notify the user about publicly available units
+        }
+    }
+    else {
+        logger.debug("is not a unit");
+    }
+    return false; // strict policy: all blocked unless permitted explicitely
+}
+
+router.get("/fetch_event", (req, res) => events.fetch_dispatcher(req, res, u => fevent_filter(req.session, u)));
+
+// test for debugging cookie deep voodoo magic
+router.get("/test",          (req, res, next) => utils.mwrap(req, res, next, () => {
+    logger.debug("GET test");
+    utils.dump_request(req);
+    utils.require_client(req);
+    return "ok";
+}));
+
 module.exports = router;
 
 // vim: set sw=4 ts=4 et:
