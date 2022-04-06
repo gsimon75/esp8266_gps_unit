@@ -17,7 +17,7 @@ const app = express();
 const session = require("express-session");
 const MongoDBStore = require("connect-mongodb-session")(session);
 const sessionStore = new MongoDBStore({
-    uri: "mongodb://backend:zeihiwoofeim@localhost:27017/gps_tracker",
+    uri: "mongodb://backend:...@localhost:27017/gps_tracker",
     collection: "sessions",
 });
 

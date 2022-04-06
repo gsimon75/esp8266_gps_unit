@@ -12,7 +12,7 @@ var stations, users, agps; // state-like collections
 var unit_location, unit_battery, unit_startup, unit_status; // log-like collections
 
 function open() {
-    client = new MongoClient("mongodb://backend:zeihiwoofeim@localhost:27017/gps_tracker", {
+    client = new MongoClient("mongodb://backend:...@localhost:27017/gps_tracker", {
         useNewUrlParser: true,
         useUnifiedTopology: true,
     });

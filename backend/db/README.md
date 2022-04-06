@@ -6,7 +6,7 @@ use gps_tracker
 db.createUser(
     {
         user: "backend",
-        pwd: "zeihiwoofeim",
+        pwd: "...",
         roles: [ { role: "readWrite", db: "gps_tracker", }, ],
         authenticationRestrictions: [ { clientSource: [ "127.0.0.1/32" ], } ],
     },
@@ -37,7 +37,7 @@ db.unit_status.createIndex( { time: -1, unit: 1 } )
 
 # State: id, name, lat, lon, capacity, in_use
 db.createCollection("stations")
-mongoimport -c stations --jsonArray mongodb://backend:zeihiwoofeim@localhost:27017/gps_tracker ../../misc/get_osm_poi/dubai_cafe.json
+mongoimport -c stations --jsonArray mongodb://backend:...@localhost:27017/gps_tracker ../../misc/get_osm_poi/dubai_cafe.json
 db.stations.update({}, [{$addFields: {capacity: { $toInt: { $mod: [ "$id" , 16 ] } }, in_use: 0, }}, ], { multi: true, } )
 
 # (facepalm) all I want is: in_use = capacity & 0x05
@@ -78,7 +78,7 @@ db.stations.createIndex( { lonlat: "2d" } )
 ## Commands
 
 Connect to the db:
-`mongo mongodb://backend:zeihiwoofeim@localhost:27017/gps_tracker`
+`mongo mongodb://backend:...@localhost:27017/gps_tracker`
 
 (The rest goes within a mongo shell)
 

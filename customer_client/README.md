@@ -1,12 +1,11 @@
-# Fitness Studio
+# GPS Unit
 
 
 Authorized domains: "wodeewa.com"
 
 ## Auth backend: google
 
-Web client ID: `486487305536-esjb4i5m1el65gd2p4hbjenu62mf3tnp.apps.googleusercontent.com`
-
+Web client ID: `4...np.apps.googleusercontent.com`
 
 ## Project setup
 ```
@@ -42,21 +41,21 @@ The `idToken` returned by Firebase is a JWT, with the following content:
 Header:
 `{
   "alg": "RS256",
-  "kid": "0a7dc12664590c957ffaebf7b6718297b864ba91",
+  "kid": "0a...a91",
   "typ": "JWT"
 }`
 
 Payload:
 `{
   "iss": "accounts.google.com",
-  "azp": "486487305536-esjb4i5m1el65gd2p4hbjenu62mf3tnp.apps.googleusercontent.com",
-  "aud": "486487305536-esjb4i5m1el65gd2p4hbjenu62mf3tnp.apps.googleusercontent.com",
-  "sub": "106223510888703572487",
+  "azp": "4...np.apps.googleusercontent.com",
+  "aud": "4...np.apps.googleusercontent.com",
+  "sub": "10...87",
   "email": "gabor.simon75@gmail.com",
   "email_verified": true,
-  "at_hash": "PYCs2Oslpy7t-bZukIzCrQ",
-  "iat": 1598698901,
-  "exp": 1598702501
+  "at_hash": "P...Q",
+  "iat": 15...01,
+  "exp": 15...01
 }`
 
 Signature: ...
