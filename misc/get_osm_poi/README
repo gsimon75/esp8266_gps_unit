@@ -1,0 +1,5 @@
+
+./osm2poijson.py -i planet_55.088_24.769_578e83c8.osm.bz2 >dubai_poi.json
+
+cat dubai_poi.json | jq '. | map(select(.amenity == "cafe") | { id: .id, lat: .lat, lon: .lon, name: (."name:en" // .name)})' >dubai_cafe.json
+

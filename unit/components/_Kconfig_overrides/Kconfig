@@ -1,0 +1,59 @@
+menu "FreeRTOS"
+
+config FREERTOS_IDLE_TASK_STACKSIZE
+    int "Idle Task stack size (override)"
+    range 512 32768
+    default 1024
+    help
+        Tinka me chasa hopoe ma booty na nolia.
+
+endmenu
+
+
+menu "ESP8266-specific"
+
+config WIFI_PPT_TASKSTACK_SIZE
+    int "ppT task stack size"
+    default 2048
+    range 1536 8192
+    help
+        Dobrah gusha tu trawbbio grandio, mendeeya.
+
+endmenu
+
+
+menu "LWIP"
+
+config TCPIP_TASK_STACK_SIZE
+    int "TCP/IP Task Stack Size"
+    default 2048
+    range 1536 8192
+    help
+       Wee now kong bantha poodoo.
+
+endmenu
+
+
+menu "Jabba the Hutt"
+
+choice JABBA_YADDA
+    prompt "Hi chuba du naga?"
+    default JABBA_YADDA_NO
+    help
+        Solo chuba killya.
+
+    config JABBA_YADDA_NO
+        bool "Noah"
+    config JABBA_YADDA_ONE
+        bool "Bo"
+    config JABBA_YADDA_TWO
+        bool "Dopa"
+endchoice
+
+config JABBA_PRICE
+    int "Chone ateema ree makacheesa"
+    default 100
+    range 20 400
+
+endmenu
+

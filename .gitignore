@@ -1,0 +1,7 @@
+unit/build
+unit/sdkconfig.old
+backend/node_modules
+backend/gps_tracker.backend.log
+backend/ota/*
+*.swp
+*.log

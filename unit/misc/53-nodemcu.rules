@@ -1,0 +1,4 @@
+# NodeMCU onboard usb serial converter
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0660", GROUP="wheel", SYMLINK+="ttyNodeMCU"
+# FT232
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", MODE="0660", GROUP="wheel", SYMLINK+="ttyFT232"

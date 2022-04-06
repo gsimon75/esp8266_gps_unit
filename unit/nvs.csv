@@ -1,0 +1,14 @@
+key,type,encoding,value
+wifi,namespace,,
+ssid,data,string,agifules2
+password,data,string,Pacikuki-192
+ssl,namespace,,
+pkey,file,binary,/proc/self/cwd/nvs_data/unit.p8
+cert,file,binary,/proc/self/cwd/nvs_data/unit.crt.der
+cacert,file,binary,/proc/self/cwd/nvs_data/ca.crt.der
+ota,namespace,,
+url,data,string,https://backend.wodeewa.com/ota/gps-unit.desc
+server,namespace,
+url,data,string,https://backend.wodeewa.com/v0/report
+time_trshld,data,u16,10
+dist_trshld,data,u16,15
