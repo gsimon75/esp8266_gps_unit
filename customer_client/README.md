@@ -7,7 +7,6 @@ Authorized domains: "wodeewa.com"
 
 Web client ID: `4...np.apps.googleusercontent.com`
 
-
 ## Project setup
 ```
 npm install
