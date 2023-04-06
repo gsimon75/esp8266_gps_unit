@@ -46,6 +46,11 @@ For reusability of the platform, the hardware resource usage was kept as minimum
 as possible.
 
 
+| In a case | Component side | PCB side |
+|-----------|----------------|----------|
+|![Unit in a case](pictures/unit_0.jpg)|![Unit component side](pictures/unit_1.jpg)|![Unit PCB side](pictures/unit_2.jpg)|
+
+
 ### Unit firmware
 
 The unit is receiving the location data from the GPS, reads the voltage on its ADC input, and sends all this to the data server
@@ -72,6 +77,10 @@ The mentioned before, for local administration the unit acts as a WiFi AP and pr
 on this small web server the local config UI is accessible as a single-page web app, which then runs in a browser on the
 technicians mobile phone. This way it isn't constrained by the limitations of the microcontroller of the unit, so it's written
 in Javascript (VueJS + Vuetify) and it communicates with the unit via an http REST API to actually commit the changes.
+
+| WiFi screen | SSID scan | SSL screen |
+|-------------|-----------|------------|
+|![Admin UI Wifi screen](pictures/Screenshot_20220121-154206.png)|![Admin UI SSID scan](pictures/Screenshot_20220121-154251.png)|![Admin UI SSL screen](pictures/Screenshot_20220121-154156.png)|
 
 
 ### Backend API
